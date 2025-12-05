@@ -1297,11 +1297,23 @@ export default function UploadPage() {
         const logDate = analysis.date || new Date().toISOString().split('T')[0]
         
         // 감정 태그 추출 (사용자가 선택한 emotionTags만 사용)
-        // 사용자가 명시적으로 선택한 감정 키워드만 저장 (AI 분석 결과인 emotionSummary는 사용하지 않음)
-        let emotionTag = null
+        // 1. analysis.emotionTags에서 감정 키워드 수집
+        const collectedEmotionTags = new Set()
         if (analysis.emotionTags && Array.isArray(analysis.emotionTags) && analysis.emotionTags.length > 0) {
-          // 사용자가 선택한 감정 키워드만 사용
-          emotionTag = analysis.emotionTags.join(', ')
+          analysis.emotionTags.forEach(tag => collectedEmotionTags.add(tag))
+        }
+        
+        // 2. 선택된 활동 유형의 emotionTags도 수집
+        Object.entries(activityTypes).forEach(([key, typeData]) => {
+          if (typeData && typeData.selected && typeData.emotionTags && Array.isArray(typeData.emotionTags)) {
+            typeData.emotionTags.forEach(tag => collectedEmotionTags.add(tag))
+          }
+        })
+        
+        // 3. 수집된 감정 키워드를 문자열로 변환
+        let emotionTag = null
+        if (collectedEmotionTags.size > 0) {
+          emotionTag = Array.from(collectedEmotionTags).join(', ')
         }
         // emotionSummary는 사용하지 않음 (AI 분석 결과이므로 사용자 선택과 다를 수 있음)
         
@@ -1683,6 +1695,7 @@ export default function UploadPage() {
             fileRef={fileRef} 
             handleFiles={handleFiles}
             uploads={uploads}
+            onDeleteUpload={handleDeleteUpload}
           />
 
           {/* [오른쪽] 파일 목록 패널 컴포넌트 */}
@@ -1749,7 +1762,7 @@ export default function UploadPage() {
 // ==============================================================================
 
 // 진행도 애니메이션 컴포넌트
-function AnimatedProgressItem({ upload }) {
+function AnimatedProgressItem({ upload, onDelete }) {
   const [displayProgress, setDisplayProgress] = useState(0)
   const [displaySteps, setDisplaySteps] = useState({
     save: 0,
@@ -1841,7 +1854,42 @@ function AnimatedProgressItem({ upload }) {
           <div className="upload-progress-filename">{upload.file_name}</div>
           <div className="upload-progress-status">{statusText}</div>
         </div>
-        <div className="upload-progress-percentage">{displayProgress}%</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div className="upload-progress-percentage">{displayProgress}%</div>
+          {onDelete && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                if (window.confirm(`이 파일을 삭제하시겠습니까?\n\n파일: ${upload.file_name}`)) {
+                  onDelete(upload.id)
+                }
+              }}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                cursor: 'pointer',
+                color: '#ef4444',
+                fontSize: '18px',
+                fontWeight: 'bold',
+                padding: '4px 8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#fee2e2'
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'transparent'
+              }}
+              title="파일 삭제"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
       <div className="upload-progress-bar-container">
         <div 
@@ -1873,7 +1921,7 @@ function AnimatedProgressItem({ upload }) {
 }
 
 // 왼쪽 드롭존 컴포넌트
-function DropZonePanel({ uploading, fileRef, handleFiles, uploads = [] }) {
+function DropZonePanel({ uploading, fileRef, handleFiles, uploads = [], onDeleteUpload }) {
   const [dragOver, setDragOver] = useState(false)
   
   const onDragOver = (e) => { e.preventDefault(); setDragOver(true) }
@@ -1953,7 +2001,11 @@ function DropZonePanel({ uploading, fileRef, handleFiles, uploads = [] }) {
         <div className="upload-progress-list">
           <h3 className="upload-progress-list-title">업로드 및 분석 진행 중</h3>
           {processingUploads.map(upload => (
-            <AnimatedProgressItem key={upload.id} upload={upload} />
+            <AnimatedProgressItem 
+              key={upload.id} 
+              upload={upload} 
+              onDelete={onDeleteUpload}
+            />
           ))}
         </div>
       )}
