@@ -1,5 +1,5 @@
 // src/pages/Dashboard.jsx
-import React, { useEffect, useState, useMemo } from 'react'
+import React, { useEffect, useState, useMemo, useCallback } from 'react'
 import Layout from '../components/Layout'
 import AIChat from '../components/AIChat'
 import './Dashboard.css'
@@ -45,67 +45,73 @@ export default function Dashboard() {
   const [selectedEmotionKeywords, setSelectedEmotionKeywords] = useState([]) // 개별분석에 표시할 선택한 감정 키워드
   const [activityEmotionAiComment, setActivityEmotionAiComment] = useState('') // 활동별 감정 분석 AI 코멘트
 
-  // 학생 데이터 불러오기
+  // 학생 데이터 불러오기 함수 (재사용 가능하도록 분리)
+  const loadStudents = useCallback(async () => {
+    try {
+      // 백엔드 API에서 학생 목록 가져오기 (우선)
+      let apiStudents = []
+      try {
+        const res = await apiFetch('/api/students?limit=1000')
+        const items = Array.isArray(res.items) ? res.items : (Array.isArray(res) ? res : [])
+        apiStudents = items.map(item => ({
+          id: String(item.id ?? item.student_id ?? item.uuid),
+          name: item.name ?? item.display_name ?? item.student_name ?? '이름 없음',
+          nickname: item.alias || item.nickname || '',
+          group_name: item.group_name || ''
+        })).filter(item => item.id)
+        
+        console.log('[대시보드] API에서 가져온 학생 수:', apiStudents.length)
+      } catch (err) {
+        console.log('[대시보드] API에서 학생 데이터 로드 실패:', err)
+      }
+
+      // API 데이터만 사용 (배포 환경에서는 API가 source of truth)
+      setStudents(apiStudents)
+      
+      // 학생 분석 레이아웃에 자동으로 추가 (모든 학생 추가)
+      if (apiStudents.length > 0) {
+        // 함수형 업데이트로 기존 선택된 학생 ID들 유지 (새 학생만 추가)
+        setSelectedStudents(prevSelected => {
+          const newStudentIds = apiStudents.map(s => s.id)
+          // 기존 선택된 학생 + 새로 추가된 학생 (중복 제거)
+          return [...new Set([...prevSelected, ...newStudentIds])]
+        })
+        
+        setFilteredStudents(apiStudents.map(s => s.id)) // 필터링된 목록은 전체 학생으로 설정
+        
+        // 학생 이름 매핑 생성
+        const namesMap = {}
+        apiStudents.forEach(s => {
+          namesMap[s.id] = s.name || s.student_name || s.display_name || '학생'
+        })
+        setStudentNamesMap(namesMap)
+        
+        // 모든 학생의 기록수 로드 (병렬로)
+        loadAllStudentRecordCounts(apiStudents.map(s => s.id))
+        
+        // 첫 페이지로 초기화
+        setCurrentPage(0)
+        
+        // 함수형 업데이트로 선택된 학생 확인
+        setSelectedStudentId(prevId => {
+          // 선택된 학생이 없거나 삭제된 경우에만 첫 학생 자동 선택
+          if (!prevId || !apiStudents.find(s => s.id === prevId)) {
+            return apiStudents.length > 0 ? apiStudents[0].id : ''
+          }
+          return prevId
+        })
+      }
+    } catch (err) {
+      console.error('학생 데이터 로드 실패:', err)
+    }
+  }, [])
+
+  // 학생 데이터 불러오기 (초기 로드)
   useEffect(() => {
     setInitialLoading(true)
     const userData = JSON.parse(localStorage.getItem('user') || '{}')
     if (userData.name) setUser(userData)
 
-    async function loadStudents() {
-      try {
-        // 백엔드 API에서 학생 목록 가져오기 (우선)
-        let apiStudents = []
-        try {
-          const res = await apiFetch('/api/students?limit=1000')
-          const items = Array.isArray(res.items) ? res.items : (Array.isArray(res) ? res : [])
-          apiStudents = items.map(item => ({
-            id: String(item.id ?? item.student_id ?? item.uuid),
-            name: item.name ?? item.display_name ?? item.student_name ?? '이름 없음',
-            nickname: item.alias || item.nickname || '',
-            group_name: item.group_name || ''
-          })).filter(item => item.id)
-          
-          console.log('[대시보드] API에서 가져온 학생 수:', apiStudents.length)
-        } catch (err) {
-          console.log('[대시보드] API에서 학생 데이터 로드 실패, localStorage 사용:', err)
-        }
-
-        // API 데이터만 사용 (배포 환경에서는 API가 source of truth)
-        setStudents(apiStudents)
-        
-        // 학생 분석 레이아웃에 자동으로 추가 (모든 학생 추가)
-        if (apiStudents.length > 0) {
-          // 모든 학생을 selectedStudents에 추가 (페이지네이션으로 표시)
-          const allStudentIds = apiStudents.map(s => s.id)
-          setSelectedStudents(allStudentIds)
-          setFilteredStudents(allStudentIds) // 초기에는 모든 학생 표시
-          
-          // 학생 이름 매핑 생성
-          const namesMap = {}
-          apiStudents.forEach(s => {
-            namesMap[s.id] = s.name || s.student_name || s.display_name || '학생'
-          })
-          setStudentNamesMap(namesMap)
-          
-          // 모든 학생의 기록수를 0으로 초기화
-          const initialRecordCounts = {}
-          apiStudents.forEach(s => {
-            initialRecordCounts[s.id] = 0
-          })
-          setStudentRecordCounts(initialRecordCounts)
-          
-          // 모든 학생의 기록수 로드 (병렬로)
-          loadAllStudentRecordCounts(apiStudents.map(s => s.id))
-          
-          // 첫 페이지로 초기화
-          setCurrentPage(0)
-          
-          if(apiStudents.length > 0) setSelectedStudentId(apiStudents[0].id) // 첫 학생 자동 선택
-        }
-      } catch (err) {
-        console.error('학생 데이터 로드 실패:', err)
-      }
-    }
     loadStudents()
     
     // 활동 상세 내역 데이터는 대시보드 API에서 가져오므로 여기서는 제거
@@ -115,6 +121,19 @@ export default function Dashboard() {
     setActivityAbilityAnalysis([])
     setInitialLoading(false)
   }, [])
+
+  // 페이지 포커스 시 학생 목록 갱신 (학생 추가/업로드 후 자동 반영)
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('[대시보드] 페이지 포커스 감지, 학생 목록 갱신')
+      loadStudents()
+    }
+
+    window.addEventListener('focus', handleFocus)
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [loadStudents])
 
   // -----------------------------
   // 2) 감정 키워드 데이터 상태
