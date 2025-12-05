@@ -68,17 +68,8 @@ export default function Dashboard() {
       // API 데이터만 사용 (배포 환경에서는 API가 source of truth)
       setStudents(apiStudents)
       
-      // 학생 분석 레이아웃에 자동으로 추가 (모든 학생 추가)
+      // 학생 목록만 설정 (자동 선택 및 데이터 로드하지 않음)
       if (apiStudents.length > 0) {
-        // 함수형 업데이트로 기존 선택된 학생 ID들 유지 (새 학생만 추가)
-        setSelectedStudents(prevSelected => {
-          const newStudentIds = apiStudents.map(s => s.id)
-          // 기존 선택된 학생 + 새로 추가된 학생 (중복 제거)
-          return [...new Set([...prevSelected, ...newStudentIds])]
-        })
-        
-        setFilteredStudents(apiStudents.map(s => s.id)) // 필터링된 목록은 전체 학생으로 설정
-        
         // 학생 이름 매핑 생성
         const namesMap = {}
         apiStudents.forEach(s => {
@@ -86,20 +77,14 @@ export default function Dashboard() {
         })
         setStudentNamesMap(namesMap)
         
-        // 모든 학생의 기록수 로드 (병렬로)
-        loadAllStudentRecordCounts(apiStudents.map(s => s.id))
+        // 필터링된 목록은 전체 학생으로 설정 (학생 카드 표시용)
+        setFilteredStudents(apiStudents.map(s => s.id))
         
         // 첫 페이지로 초기화
         setCurrentPage(0)
         
-        // 함수형 업데이트로 선택된 학생 확인
-        setSelectedStudentId(prevId => {
-          // 선택된 학생이 없거나 삭제된 경우에만 첫 학생 자동 선택
-          if (!prevId || !apiStudents.find(s => s.id === prevId)) {
-            return apiStudents.length > 0 ? apiStudents[0].id : ''
-          }
-          return prevId
-        })
+        // 학생은 자동 선택하지 않음 (사용자가 카드를 클릭할 때만 선택)
+        // 모든 학생의 기록수도 미리 로드하지 않음 (성능 최적화)
       }
     } catch (err) {
       console.error('학생 데이터 로드 실패:', err)
@@ -908,39 +893,34 @@ export default function Dashboard() {
 
   // 학생 이름 필터링 (실시간)
   useEffect(() => {
-    // selectedStudents가 비어있으면 아무것도 하지 않음
-    if (selectedStudents.length === 0) {
+    // students가 비어있으면 아무것도 하지 않음
+    if (students.length === 0) {
       return
     }
 
     if (!searchName.trim()) {
       // 검색어가 없으면 모든 학생 표시
-      setFilteredStudents(selectedStudents)
+      setFilteredStudents(students.map(s => s.id))
       setCurrentPage(0)
       return
     }
 
     // 검색어에 맞는 학생 필터링
-    const filtered = selectedStudents.filter(studentId => {
-      const student = students.find(s => s.id === studentId)
-      if (!student) {
-        // studentNamesMap에서 찾기
-        const name = studentNamesMap[studentId] || ''
-        return name.toLowerCase().includes(searchName.toLowerCase().trim())
-      }
-      
-      // 이름 또는 닉네임으로 검색
-      const name = student.name || student.student_name || student.display_name || ''
-      const nickname = student.nickname || ''
-      const searchLower = searchName.toLowerCase().trim()
-      
-      return name.toLowerCase().includes(searchLower) || 
-             nickname.toLowerCase().includes(searchLower)
-    })
+    const filtered = students
+      .filter(student => {
+        // 이름 또는 닉네임으로 검색
+        const name = student.name || student.student_name || student.display_name || ''
+        const nickname = student.nickname || ''
+        const searchLower = searchName.toLowerCase().trim()
+        
+        return name.toLowerCase().includes(searchLower) || 
+               nickname.toLowerCase().includes(searchLower)
+      })
+      .map(s => s.id)
     
     setFilteredStudents(filtered)
     setCurrentPage(0) // 필터링 시 첫 페이지로 리셋
-  }, [searchName, selectedStudents, students, studentNamesMap])
+  }, [searchName, students])
 
   // 기간 조회 핸들러 (현재 프로젝트 기능)
   const handleSearch = async () => {
@@ -1084,9 +1064,7 @@ export default function Dashboard() {
                       className="student-card-delete-btn"
                       onClick={(e) => {
                         e.stopPropagation()
-                        const newSelected = selectedStudents.filter(id => id !== studentId)
-                        setSelectedStudents(newSelected)
-                        // 필터링된 목록에서도 제거
+                        // 필터링된 목록에서만 제거 (학생 목록 자체는 유지)
                         const newFiltered = filteredStudents.filter(id => id !== studentId)
                         setFilteredStudents(newFiltered)
                         // 선택된 학생이 삭제되면 다른 학생 선택
@@ -1099,12 +1077,8 @@ export default function Dashboard() {
                         if (newFiltered.length <= currentPage * 8 && currentPage > 0) {
                           setCurrentPage(currentPage - 1)
                         }
-                        // studentNamesMap에서도 제거
-                        const newMap = { ...studentNamesMap }
-                        delete newMap[studentId]
-                        setStudentNamesMap(newMap)
                       }}
-                      title="카드 삭제"
+                      title="카드에서 제거"
                     >
                       ×
                     </button>
@@ -1127,7 +1101,9 @@ export default function Dashboard() {
                         className="student-record-count-number"
                         style={{ color: studentColor }}
                       >
-                        {studentRecordCounts[studentId] !== undefined ? studentRecordCounts[studentId] : 0}
+                        {selectedStudentId === studentId && studentRecordCounts[studentId] !== undefined 
+                          ? studentRecordCounts[studentId] 
+                          : '-'}
                       </div>
                       <div className="student-record-count-label">총 기록수</div>
                     </div>
@@ -1160,7 +1136,8 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* 2) 개별 분석 + 도넛 차트 */}
+        {/* 2) 개별 분석 + 도넛 차트 (학생 선택 시에만 표시) */}
+        {selectedStudentId ? (
         <section className={`dash-row ${activeSection === 'activity-abilities' ? 'dash-row-activity-abilities' : ''}`}>
           {/* 감정 Top 3 / 활동 유형 Top 3 */}
           {activeSection === 'emotion-keywords' ? (
@@ -1550,9 +1527,21 @@ export default function Dashboard() {
              )}
           </div>
         </section>
+        ) : (
+          <section className="dash-row dash-row-full">
+            <div className="card" style={{ padding: '60px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: '18px', color: '#6b7280', marginBottom: '10px' }}>
+                학생을 선택해주세요
+              </div>
+              <div style={{ fontSize: '14px', color: '#9ca3af' }}>
+                위의 학생 카드를 클릭하면 해당 학생의 분석 데이터를 확인할 수 있습니다.
+              </div>
+            </div>
+          </section>
+        )}
 
-        {/* 3) 활동별 감정 키워드 빈도 / 활동 유형 분포 */}
-        {activeSection === 'emotion-keywords' ? (
+        {/* 3) 활동별 감정 키워드 빈도 / 활동 유형 분포 (학생 선택 시에만 표시) */}
+        {selectedStudentId && (activeSection === 'emotion-keywords' ? (
           <section className="dash-row dash-row-full">
             <div className="card recent-card">
               <div className="card-header">
@@ -1682,7 +1671,7 @@ export default function Dashboard() {
               </div>
             </div>
           </section>
-        ) : null}
+        ) : null)}
 
       </div>
 
