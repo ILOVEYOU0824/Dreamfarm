@@ -320,7 +320,13 @@ export default function Dashboard() {
   ]
 
   const [emotionKeywords, setEmotionKeywords] = useState([]) // 예시 데이터 제거
-  const [activityEmotionData, setActivityEmotionData] = useState(exampleActivityEmotionData) // 구조는 유지하되 emotions는 빈 배열로 시작
+  // 활동별 감정 데이터 초기값: 구조만 유지하고 emotions는 빈 배열
+  const [activityEmotionData, setActivityEmotionData] = useState(() => {
+    return exampleActivityEmotionData.map(activity => ({
+      ...activity,
+      emotions: [] // 초기값은 빈 배열
+    }))
+  })
 
   // 활동 유형별 통계 계산
   const calculateActivityTypeStats = () => {
@@ -623,6 +629,16 @@ export default function Dashboard() {
       // 학생이 선택되지 않았으면 API 호출하지 않음
       if (!selectedStudentId) {
         console.log('[대시보드] 학생이 선택되지 않아 데이터 로드 스킵')
+        // 학생이 선택되지 않았을 때 모든 데이터 초기화
+        setEmotionKeywords([])
+        setSelectedEmotionKeywords([])
+        setActivityEmotionData(exampleActivityEmotionData.map(activity => ({
+          ...activity,
+          emotions: []
+        })))
+        setActivityAbilityAnalysis([])
+        setActivityDetails([])
+        setActivityEmotionAiComment('')
         setInitialLoading(false)
         return
       }
@@ -890,7 +906,15 @@ export default function Dashboard() {
         
       } catch (err) {
         console.error('[대시보드] 학생별 데이터 로드 실패:', err)
-        // 에러 발생 시 예시 데이터 유지 (이미 초기값으로 설정됨)
+        // 에러 발생 시 빈 데이터로 설정
+        setEmotionKeywords([])
+        setSelectedEmotionKeywords([])
+        setActivityEmotionData(exampleActivityEmotionData.map(activity => ({
+          ...activity,
+          emotions: []
+        })))
+        setActivityAbilityAnalysis([])
+        setActivityEmotionAiComment('')
       } finally {
         setInitialLoading(false)
       }
