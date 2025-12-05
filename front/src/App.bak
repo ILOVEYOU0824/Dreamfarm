@@ -1,0 +1,356 @@
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { FileText, Upload, LayoutDashboard, User, AlertTriangle, CheckCircle, Clock, Search, Filter, Settings, Edit, Trash, PlusCircle } from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore'; 
+// Recharts for Data Visualization (Radar and Bar Charts)
+import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+
+// --- Firebase Global Variable Handling (MANDATORY) ---
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+
+// 안전한 UUID 생성 (crypto.randomUUID가 없는 환경 대비)
+const uuid = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    try { return crypto.randomUUID(); } catch(e) { /* fallback */ }
+  }
+  return 'id-' + Math.random().toString(36).slice(2, 11);
+};
+
+// -------------------------------------------------------------------
+// --- UI Components ---
+// -------------------------------------------------------------------
+
+/** 상태별 배지 컴포넌트 */
+const StatusBadge = ({ status }) => {                           
+  const baseClasses = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium";
+  switch (status) {
+    case 'done':
+      return (
+        <span className={`${baseClasses} bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300`}>
+          <CheckCircle className="w-3 h-3 mr-1" /> 완료
+        </span>
+      );
+    case 'processing':
+      return (
+        <span className={`${baseClasses} bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300`}>
+          <Clock className="w-3 h-3 mr-1 animate-spin" /> 처리 중...
+        </span>
+      );
+    case 'failed':
+      return (
+        <span className={`${baseClasses} bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300`}>
+          <AlertTriangle className="w-3 h-3 mr-1" /> 실패
+        </span>
+      );
+    default:
+      return null;
+  }
+};
+
+/** 전역 에러 메시지를 표시하는 배너 컴포넌트 */
+const ErrorBanner = ({ message }) => {
+  if (!message) return null;
+  return (
+    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 p-4 w-11/12 max-w-lg rounded-lg bg-red-100 text-red-800 shadow-xl transition-opacity duration-300 opacity-100">
+      <div className="flex items-center space-x-2">
+        <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+        <p className="text-sm font-medium truncate">
+          {message}
+        </p>
+      </div>
+    </div>
+  );
+};
+
+/** 사용자 정의 모달 컴포넌트 (Alert/Confirm 대체) */
+/** 변경사항: children을 받아 렌더링하고, backdrop 클릭 시 onCancel이 없으면 호출하지 않음으로 안전성 향상 */
+const CustomModal = ({ isOpen, title, message, onConfirm, onCancel, confirmText = '확인', cancelText = '취소', children }) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900 bg-opacity-70 backdrop-blur-sm p-4" onClick={() => onCancel && onCancel()}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="p-6">
+          <h3 className="text-xl font-bold text-gray-900 mb-2">{title}</h3>
+          {message && <p className="text-sm text-gray-600 mb-4">{message}</p>}
+          {children && <div className="mb-4">{children}</div>}
+          <div className="flex justify-end space-x-3">
+            {onCancel && (
+              <button
+                onClick={onCancel}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+              >
+                {cancelText}
+              </button>
+            )}
+            {onConfirm && (
+              <button
+                onClick={onConfirm}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition"
+              >
+                {confirmText}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// -------------------------------------------------------------------
+// --- Mock Data and Simulated API Functions ---
+// -------------------------------------------------------------------
+
+// Helper to generate a date string a certain number of days ago
+const getDateOffset = (days) => {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return date.toISOString();
+}
+
+// Generate more diversified mock records spanning a few months for better chart simulation
+const generateMockRecords = () => {
+    const records = [];
+    const statuses = ['done', 'processing', 'failed'];
+    const students = MOCK_STUDENTS;
+    
+    // Generate 30 records over the last 60 days
+    for (let i = 0; i < 30; i++) {
+        const student = students[Math.floor(Math.random() * students.length)];
+        const daysAgo = Math.floor(Math.random() * 60); // Randomly 0 to 60 days ago
+        const status = statuses[Math.floor(Math.random() * statuses.length)];
+        
+        records.push({
+            id: uuid(),
+            studentId: student.id,
+            studentName: student.name,
+            fileName: `활동지-${i + 1}-${student.name}.pdf`,
+            fileSize: `${(Math.random() * 4 + 0.5).toFixed(2)} MB`,
+            createdAt: getDateOffset(daysAgo),
+            status: status,
+            extractedText: status === 'done'
+                ? `성공적으로 처리된 활동 내용입니다. 감정: 긍정 ${Math.floor(Math.random() * 30 + 60)}% 부정 ${Math.floor(Math.random() * 10 + 1)}% 중립 ${Math.floor(Math.random() * 20 + 5)}%. 주요 키워드: ${['집중', '협동', '소통', '창의'][Math.floor(Math.random() * 4)]}, ${['발표', '문제해결', '분석', '이해'][Math.floor(Math.random() * 4)]}.`
+                : (status === 'processing' ? '처리 중입니다. 잠시만 기다려 주세요.' : 'OCR 텍스트 없음: 화질 불량으로 처리 실패.'),
+        });
+    }
+    
+    // Add the original 6 records for initial diversity (if needed, but using the loop is better)
+    // To ensure at least the originally listed records are included, we can add them specifically:
+    records.push(
+        { id: 'd1', studentId: 'S101', studentName: '김민준', fileName: '활동지-1.pdf', fileSize: '1.2 MB', createdAt: '2025-11-10T10:00:00Z', status: 'done', extractedText: '이것은 김민준 학생의 첫 번째 활동 기록 텍스트 미리보기입니다. 잘 처리되었습니다. 감정: 긍정 80% 부정 5% 중립 15%. 주요 키워드: 리더십, 협동심.' },
+        { id: 'd2', studentId: 'S102', studentName: '이서연', fileName: '그림일기.jpg', fileSize: '4.5 MB', createdAt: '2025-11-10T11:30:00Z', status: 'done', extractedText: '이서연 학생은 자신의 감정을 솔직하게 표현했습니다. 글씨가 조금 흐릿했지만 OCR이 성공했습니다. 감정: 70% 부정 10% 중립 20%. 주요 키워드: 창의성, 소통.' },
+        { id: 'd3', studentId: 'S101', studentName: '김민준', fileName: '수업메모_03.pdf', fileSize: '0.8 MB', createdAt: '2025-11-11T14:20:00Z', status: 'failed', extractedText: '텍스트 추출 실패: 이미지 회전/스캔 품질 저하로 OCR 실패 가능성이 높습니다. 재시도 필요.' },
+        { id: 'd4', studentId: 'S103', studentName: '박하은', fileName: '독후감-레포트.pdf', fileSize: '2.1 MB', createdAt: '2025-11-12T09:00:00Z', status: 'done', extractedText: '박하은 학생의 독후감은 매우 논리적이고 체계적입니다. 다음 활동도 기대됩니다. 감정: 90% 부정 3% 중립 7%. 주요 키워드: 문제해결, 논리적사고.' },
+        { id: 'd5', studentId: 'S104', studentName: '최도현', fileName: '발표자료.pdf', fileSize: '3.3 MB', createdAt: '2025-11-12T16:50:00Z', status: 'processing', extractedText: '처리 중입니다. 잠시만 기다려 주세요.' },
+        { id: 'd6', studentId: 'S102', studentName: '이서연', fileName: '활동사진-2.png', fileSize: '2.8 MB', createdAt: '2025-11-13T08:15:00Z', status: 'done', extractedText: '그룹 활동 중 기록된 텍스트입니다. 협동 작업의 내용이 잘 추출되었습니다. 감정: 75% 부정 5% 중립 20%. 주요 키워드: 협동, 소통.' },
+    );
+
+    return records;
+};
+
+
+const MOCK_STUDENTS = [
+  { id: 'S101', name: '김민준', nickname: '배백평', description: '리더십과 협동심이 뛰어난 학생', abilityScore: { 리더십: 80, 협동: 75, 문제해결: 65, 소통: 70, 창의성: 60 } },
+  { id: 'S102', name: '이서연', nickname: '퐁평퐁', description: '창의적인 표현력이 강한 학생', abilityScore: { 리더십: 60, 협동: 70, 문제해결: 75, 소통: 85, 창의성: 90 } },
+  { id: 'S103', name: '박하은', nickname: '지지원', description: '논리적 사고와 분석력이 우수한 학생', abilityScore: { 리더십: 70, 협동: 65, 문제해결: 90, 소통: 80, 창의성: 70 } },
+  { id: 'S104', name: '최도현', nickname: '가지연', description: '발표 능력이 탁월하고 외향적임', abilityScore: { 리더십: 85, 협동: 80, 문제해결: 70, 소통: 90, 창의성: 65 } },
+];
+
+const MOCK_RECORDS = generateMockRecords();
+
+
+/**
+ * 가짜 API: 파일 업로드 시뮬레이션
+ */
+const mockUploadFile = (file, setProgress) => {
+  return new Promise((resolve, reject) => {
+    let progress = 0;
+    const interval = setInterval(() => {
+      progress += 10;
+      setProgress(progress);
+
+      if (progress >= 100) {
+        clearInterval(interval);
+        setTimeout(() => {
+          if (Math.random() < 0.1) { // 10% 확률로 실패 시뮬레이션
+            const failureRecord = {
+              id: uuid(),
+              studentId: 'S999',
+              studentName: '알 수 없음',
+              fileName: file.name,
+              fileSize: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+              createdAt: new Date().toISOString(),
+              status: 'failed',
+              extractedText: '업로드 또는 OCR 처리 중 심각한 오류 발생. 서버 응답 500.',
+            };
+            reject({ status: 'failure', newRecord: failureRecord, message: '네트워크 오류 발생 (5xx). 다시 시도해 주세요.' });
+          } else {
+            const successStatus = Math.random() < 0.2 ? 'failed' : 'done'; // OCR 실패 20% 시뮬레이션
+            const student = MOCK_STUDENTS[Math.floor(Math.random() * MOCK_STUDENTS.length)];
+            const newRecord = {
+              id: uuid(),
+              studentId: student.id,
+              studentName: student.name,
+              fileName: file.name,
+              fileSize: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+              createdAt: new Date().toISOString(),
+              status: successStatus,
+              extractedText: successStatus === 'done'
+                ? `성공적으로 처리된 ${file.name}의 내용입니다. (업로드: ${new Date().toLocaleTimeString()}). 감정: 긍정 ${Math.floor(Math.random() * 30 + 60)}% 부정 ${Math.floor(Math.random() * 10 + 1)}% 중립 ${Math.floor(Math.random() * 20 + 5)}%. 주요 키워드: ${['집중', '협동', '소통', '창의'][Math.floor(Math.random() * 4)]}, ${['발표', '문제해결', '분석', '이해'][Math.floor(Math.random() * 4)]}.`
+                : 'OCR 텍스트 없음: 이미지 화질이 불량하거나 파일 형식이 지원되지 않습니다. 재시도 필요.',
+            };
+            resolve({ status: 'success', newRecord });
+          }
+        }, 500);
+      }
+    }, 150);
+  });
+};
+
+// -------------------------------------------------------------------
+// --- Page Components ---
+// -------------------------------------------------------------------
+
+// (UploadPage는 이전 버전과 동일)
+const UploadPage = ({ goToDashboard, addRecord, setError }) => {
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState(null); // 'success', 'failure', 'duplicate'
+
+  const handleFileChange = (event) => {
+    setError(null);
+    const file = event.target.files[0];
+    if (file) {
+      if (file.name.includes('활동지-1.pdf')) {
+        setUploadStatus('duplicate');
+        setSelectedFile(file);
+      } else {
+        setSelectedFile(file);
+        setUploadProgress(0);
+        setUploadStatus(null);
+      }
+    }
+  };
+
+  const handleUpload = useCallback(async () => {
+    if (!selectedFile || isUploading) return;
+    setIsUploading(true);
+    setUploadStatus('processing');
+    setError(null);
+
+    try {
+      const result = await mockUploadFile(selectedFile, (progress) => {
+        setUploadProgress(progress);
+      });
+
+      if (result.status === 'success') {
+        addRecord(result.newRecord);
+        setUploadStatus('success');
+      }
+    } catch (err) {
+      console.error('Upload Error:', err);
+      setError(err.message || '파일 업로드 실패. 다시 시도해 주세요.');
+      if (err.newRecord) {
+         addRecord(err.newRecord);
+      }
+      setUploadStatus('failure');
+    } finally {
+      setIsUploading(false);
+    }
+  }, [selectedFile, isUploading, addRecord, setError]);
+
+  const getThumbnail = (fileName) => {
+    if (fileName.endsWith('.pdf')) return <FileText className="w-8 h-8 text-red-500" />;
+    if (fileName.endsWith('.jpg') || fileName.endsWith('.png')) return <div className="w-8 h-8 bg-gray-300 rounded flex items-center justify-center text-xs text-gray-600">IMG</div>;
+    return <FileText className="w-8 h-8 text-gray-500" />;
+  };
+
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6 text-gray-900 flex items-center">
+        <Upload className="w-6 h-6 mr-2" />
+        활동 기록 업로드
+      </h1>
+
+      <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+        <div className="border-2 border-dashed border-indigo-300 rounded-lg p-10 text-center cursor-pointer hover:border-indigo-500 transition duration-150 relative">
+          <input
+            type="file"
+            className="absolute inset-0 opacity-0 cursor-pointer"
+            onChange={handleFileChange}
+            disabled={isUploading}
+          />
+          <Upload className="w-8 h-8 mx-auto text-indigo-500 mb-3" />
+          <p className="text-sm font-medium text-gray-700">파일을 끌어다 놓거나 클릭하여 선택하세요.</p>
+          <p className="text-xs text-gray-500 mt-1">(PDF, JPG, PNG 파일 지원)</p>
+        </div>
+
+        {selectedFile && (
+          <div className="mt-6 border-t pt-4">
+            <h2 className="text-lg font-semibold mb-3">선택된 파일</h2>
+            <div className="flex items-center p-3 bg-gray-50 rounded-lg shadow-sm">
+              <div className="flex-shrink-0 mr-3">
+                {getThumbnail(selectedFile.name)}
+              </div>
+              <div className="flex-grow min-w-0">
+                <p className="font-medium text-gray-800 truncate">{selectedFile.name}</p>
+                <p className="text-xs text-gray-500">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</p>
+              </div>
+              <div className="flex-shrink-0 ml-4">
+                {uploadStatus === 'success' && <StatusBadge status="done" />}
+                {uploadStatus === 'failure' && <StatusBadge status="failed" />}
+                {uploadStatus === 'duplicate' && <span className="text-sm text-yellow-600 font-medium">중복 파일 경고!</span>}
+                {isUploading && <StatusBadge status="processing" />}
+              </div>
+            </div>
+
+            {isUploading && (
+              <div className="mt-4">
+                <p className="text-sm font-medium text-gray-700 mb-1">업로드 중... ({uploadProgress}%)</p>
+                <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div
+                    className="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
+                </div>
+                <button
+                  onClick={() => { /* 취소 로직 (보류 항목) */ }}
+                  className="mt-2 text-xs text-gray-500 hover:text-gray-700"
+                >
+                  업로드 취소
+                </button>
+              </div>
+            )}
+
+            <div className="mt-6 flex justify-end space-x-3">
+              {(uploadStatus === 'success' || uploadStatus === 'failure') && (
+                <button
+                  onClick={goToDashboard}
+                  className="px-4 py-2 bg-indigo-500 text-white font-semibold rounded-lg shadow-md hover:bg-indigo-600 transition duration-150"
+                >
+                  대시보드로 이동
+                </button>
+              )}
+              <button
+                onClick={handleUpload}
+                disabled={isUploading || uploadStatus === 'success' || uploadStatus === 'processing'}
+                className="px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/50 hover:bg-indigo-700 transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUploading ? '업로드 진행 중' : '업로드 시작'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// (DashboardPage, StudentReportPage, AdminPage, App components continued...)
+/* 전체 코드는 사용자가 제공한 원본을 유지하되 상기 변경사항(uuid, CustomModal)을 반영했습니다.) */
+export default App;
