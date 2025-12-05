@@ -200,26 +200,76 @@ export default function Dashboard() {
     }))
   })
 
-  // 활동 유형별 통계 계산
-  const calculateActivityTypeStats = () => {
-    const stats = activityEmotionData.map(activity => {
-      const totalEmotions = activity.emotions.reduce((sum, e) => sum + e.count, 0)
+  // 활동 유형별 통계를 위한 state 추가
+  const [activityTypeStats, setActivityTypeStats] = useState([])
+
+  // 활동 유형별 통계 계산 (log_entries의 activity_tags 기반)
+  const calculateActivityTypeStats = (logs) => {
+    if (!Array.isArray(logs) || logs.length === 0) {
+      return exampleActivityEmotionData.map(activity => ({
+        type: activity.type,
+        label: activity.label,
+        icon: activity.icon,
+        count: 0,
+        description: activity.description,
+        percentage: 0
+      }))
+    }
+
+    // 활동 유형별 카운트
+    const activityTypeCounts = {
+      harvest: 0,
+      sow: 0,
+      manage: 0,
+      observe: 0,
+      other: 0
+    }
+
+    // 각 log_entry의 activity_tags를 기반으로 활동 유형별 횟수 집계
+    logs.forEach(log => {
+      const activityTags = Array.isArray(log.activity_tags) ? log.activity_tags : []
+      
+      if (activityTags.length > 0) {
+        // 각 활동 태그를 활동 유형으로 분류
+        activityTags.forEach(activityName => {
+          const activityLower = String(activityName).toLowerCase()
+          
+          if (activityLower.includes('수확') || activityLower.includes('harvest')) {
+            activityTypeCounts.harvest += 1
+          } else if (activityLower.includes('파종') || activityLower.includes('sowing') || activityLower.includes('심기')) {
+            activityTypeCounts.sow += 1
+          } else if (activityLower.includes('관리') || activityLower.includes('manage') || activityLower.includes('물주')) {
+            activityTypeCounts.manage += 1
+          } else if (activityLower.includes('관찰') || activityLower.includes('observe') || activityLower.includes('보기')) {
+            activityTypeCounts.observe += 1
+          } else {
+            activityTypeCounts.other += 1
+          }
+        })
+      } else {
+        // 활동 태그가 없으면 '기타'로 분류
+        activityTypeCounts.other += 1
+      }
+    })
+
+    // 총 활동 횟수 계산
+    const totalCount = Object.values(activityTypeCounts).reduce((sum, count) => sum + count, 0)
+
+    // exampleActivityEmotionData를 기반으로 통계 생성
+    const stats = exampleActivityEmotionData.map(activity => {
+      const count = activityTypeCounts[activity.type] || 0
       return {
         type: activity.type,
         label: activity.label,
         icon: activity.icon,
-        count: totalEmotions,
-        description: activity.description
+        count: count,
+        description: activity.description,
+        percentage: totalCount > 0 ? Math.round((count / totalCount) * 100) : 0
       }
     })
-    const totalCount = stats.reduce((sum, s) => sum + s.count, 0)
-    return stats.map(stat => ({
-      ...stat,
-      percentage: totalCount > 0 ? Math.round((stat.count / totalCount) * 100) : 0
-    }))
-  }
 
-  const activityTypeStats = calculateActivityTypeStats()
+    return stats
+  }
 
   // 활동 능력 통계 계산 (매우 우수, 우수, 도전적)
   // 개별분석 레이아웃의 activityAbilityAnalysis 데이터를 사용하여 계산
@@ -508,6 +558,14 @@ export default function Dashboard() {
           ...activity,
           emotions: []
         })))
+        setActivityTypeStats(exampleActivityEmotionData.map(activity => ({
+          type: activity.type,
+          label: activity.label,
+          icon: activity.icon,
+          count: 0,
+          description: activity.description,
+          percentage: 0
+        })))
         setActivityAbilityAnalysis([])
         setActivityDetails([])
         setActivityEmotionAiComment('')
@@ -629,6 +687,11 @@ export default function Dashboard() {
           console.log('[대시보드] 활동 상세 내역 업데이트:', formattedDetails.length, '개')
         }
         
+        // 4-1. 활동 유형별 통계 계산 (log_entries의 activity_tags 기반)
+        const calculatedActivityTypeStats = calculateActivityTypeStats(logs)
+        setActivityTypeStats(calculatedActivityTypeStats)
+        console.log('[대시보드] 활동 유형별 통계 업데이트:', calculatedActivityTypeStats)
+
         // 5. 활동별 감정 키워드 빈도 업데이트 (log_entries에서 직접 추출)
         // log_entries의 emotion_tag와 activity_tags를 사용하여 정확한 데이터 추출
         const activityEmotionMap = {}
@@ -663,11 +726,12 @@ export default function Dashboard() {
                   activityEmotionMap[activityType] = {}
                 }
                 
-                // 감정 키워드 집계 (감정이 여러 개일 수 있으므로 분리)
+                // 감정 키워드 집계 (감정이 여러 개일 수 있으므로 분리, '기타' 제외)
                 const emotions = String(emotionTag).split(/[,，\s]+/).filter(Boolean)
                 emotions.forEach(emo => {
                   const emoTrimmed = emo.trim()
-                  if (emoTrimmed) {
+                  // '기타'는 감정 키워드가 아니므로 제외
+                  if (emoTrimmed && emoTrimmed !== '기타') {
                     activityEmotionMap[activityType][emoTrimmed] = (activityEmotionMap[activityType][emoTrimmed] || 0) + 1
                   }
                 })
@@ -681,7 +745,8 @@ export default function Dashboard() {
               const emotions = String(emotionTag).split(/[,，\s]+/).filter(Boolean)
               emotions.forEach(emo => {
                 const emoTrimmed = emo.trim()
-                if (emoTrimmed) {
+                // '기타'는 감정 키워드가 아니므로 제외
+                if (emoTrimmed && emoTrimmed !== '기타') {
                   activityEmotionMap['other'][emoTrimmed] = (activityEmotionMap['other'][emoTrimmed] || 0) + 1
                 }
               })
@@ -784,6 +849,14 @@ export default function Dashboard() {
         setActivityEmotionData(exampleActivityEmotionData.map(activity => ({
           ...activity,
           emotions: []
+        })))
+        setActivityTypeStats(exampleActivityEmotionData.map(activity => ({
+          type: activity.type,
+          label: activity.label,
+          icon: activity.icon,
+          count: 0,
+          description: activity.description,
+          percentage: 0
         })))
         setActivityAbilityAnalysis([])
         setActivityEmotionAiComment('')

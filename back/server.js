@@ -2813,11 +2813,13 @@ app.get('/api/dashboard', async (req, res) => {
 
       // 1) 감정 분포 집계 (emotion_tag가 있는 경우만)
       // emotion_tag가 쉼표로 구분된 여러 감정을 포함할 수 있으므로 분리하여 집계
+      // '기타'는 감정 키워드가 아니므로 제외
       if (emo) {
         const emotions = emo.split(/[,，\s]+/).filter(Boolean);
         emotions.forEach(e => {
           const eTrimmed = e.trim();
-          if (eTrimmed) {
+          // '기타'는 감정 키워드가 아니므로 제외
+          if (eTrimmed && eTrimmed !== '기타') {
             emotionCounts[eTrimmed] = (emotionCounts[eTrimmed] || 0) + 1;
           }
         });
@@ -2828,11 +2830,13 @@ app.get('/api/dashboard', async (req, res) => {
       activityPerDate[dateLabel] = (activityPerDate[dateLabel] || 0) + 1;
 
       // 3) 감정 상세(emotionDetails) - 각 감정별로 집계 (emotion_tag가 있는 경우만)
+      // '기타'는 감정 키워드가 아니므로 제외
       if (emo) {
         const emotions = emo.split(/[,，\s]+/).filter(Boolean);
         emotions.forEach(e => {
           const eTrimmed = e.trim();
-          if (eTrimmed) {
+          // '기타'는 감정 키워드가 아니므로 제외
+          if (eTrimmed && eTrimmed !== '기타') {
             if (!emotionDetailsMap[eTrimmed]) {
               emotionDetailsMap[eTrimmed] = {
                 emotion: eTrimmed,
