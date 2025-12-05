@@ -222,42 +222,7 @@ export default function Dashboard() {
           }
         })
         
-        // UI 개발용 예시 데이터 항상 생성 (3개만)
-        const today = new Date()
-        const exampleDetails = [
-          {
-            id: 'example_1',
-            date: new Date(today.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 2일 전
-            activity: '모종 심기',
-            type: '파종',
-            activityType: '단체활동',
-            studentComment: '우리가 심은 거라 더 애착이 가요',
-            studentName: '재성',
-            studentId: 's1'
-          },
-          {
-            id: 'example_2',
-            date: new Date(today.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 1일 전
-            activity: '물주기',
-            type: '관리',
-            activityType: '개별활동',
-            studentComment: '식물들이 물을 잘 마셔요',
-            studentName: '재성',
-            studentId: 's1'
-          },
-          {
-            id: 'example_3',
-            date: today.toISOString().split('T')[0], // 오늘
-            activity: '채소 수확',
-            type: '수확',
-            activityType: '단체활동',
-            studentComment: '오늘 수확한 채소로 샐러드 만들고 싶어요',
-            studentName: '재성',
-            studentId: 's1'
-          }
-        ]
-        // 예시 데이터를 항상 추가
-        details.push(...exampleDetails)
+        // 예시 데이터 제거 - 실제 데이터만 표시
         
         // 날짜순 정렬 (최신순)
         details.sort((a, b) => {
@@ -274,66 +239,8 @@ export default function Dashboard() {
     
     loadActivityDetails()
     
-    // 활동별 능력 분석 데이터 생성
-    const abilityAnalysis = [
-      {
-        id: 'ability_1',
-        activity: '땅콩껍질까기',
-        date: '10/20',
-        performanceLevel: '매우 우수',
-        abilityDistribution: { difficult: 3, normal: 11, good: 86 },
-        keyAbilities: ['소근육', '집중력']
-      },
-      {
-        id: 'ability_2',
-        activity: '밭 가꾸기',
-        date: '10/21',
-        performanceLevel: '매우 우수',
-        abilityDistribution: { difficult: 5, normal: 9, good: 86 },
-        keyAbilities: ['책임감', '인내']
-      },
-      {
-        id: 'ability_3',
-        activity: '고구마 수확',
-        date: '10/22',
-        performanceLevel: '매우 우수',
-        abilityDistribution: { difficult: 2, normal: 10, good: 88 },
-        keyAbilities: ['협동', '체력']
-      },
-      {
-        id: 'ability_4',
-        activity: '상추 심기',
-        date: '10/23',
-        performanceLevel: '매우 우수',
-        abilityDistribution: { difficult: 2, normal: 10, good: 87 },
-        keyAbilities: ['섬세함', '집중력']
-      },
-      {
-        id: 'ability_5',
-        activity: '모종 심기',
-        date: '10/24',
-        performanceLevel: '매우 우수',
-        abilityDistribution: { difficult: 0, normal: 10, good: 91 },
-        keyAbilities: ['섬세함', '집중력']
-      },
-      {
-        id: 'ability_6',
-        activity: '물주기',
-        date: '10/25',
-        performanceLevel: '매우 우수',
-        abilityDistribution: { difficult: 0, normal: 10, good: 93 },
-        keyAbilities: ['문제해결', '협동']
-      },
-      {
-        id: 'ability_7',
-        activity: '채소 수확',
-        date: '10/26',
-        performanceLevel: '매우 우수',
-        abilityDistribution: { difficult: 0, normal: 11, good: 88 },
-        keyAbilities: ['협동', '체력']
-      }
-    ]
-    setActivityAbilityAnalysis(abilityAnalysis)
+    // 예시 데이터 제거 - 실제 데이터만 사용
+    setActivityAbilityAnalysis([])
     setInitialLoading(false)
   }, [])
 
@@ -412,8 +319,8 @@ export default function Dashboard() {
     },
   ]
 
-  const [emotionKeywords, setEmotionKeywords] = useState(exampleEmotionKeywords)
-  const [activityEmotionData, setActivityEmotionData] = useState(exampleActivityEmotionData)
+  const [emotionKeywords, setEmotionKeywords] = useState([]) // 예시 데이터 제거
+  const [activityEmotionData, setActivityEmotionData] = useState(exampleActivityEmotionData) // 구조는 유지하되 emotions는 빈 배열로 시작
 
   // 활동 유형별 통계 계산
   const calculateActivityTypeStats = () => {
@@ -1740,22 +1647,14 @@ export default function Dashboard() {
                   <tbody>
                     {activityDetails
                       .filter(detail => {
-                        // 예시 데이터는 항상 표시
-                        if (detail.id && detail.id.startsWith('example_')) {
-                          return true
-                        }
-                        // 실제 데이터는 선택된 학생만 표시
-                        return !selectedStudentId || detail.studentId === selectedStudentId
+                        // 선택된 학생의 데이터만 표시 (학생이 선택되지 않았으면 아무것도 표시하지 않음)
+                        return selectedStudentId && detail.studentId === selectedStudentId
                       })
                       .length > 0 ? (
                         activityDetails
                           .filter(detail => {
-                            // 예시 데이터는 항상 표시
-                            if (detail.id && detail.id.startsWith('example_')) {
-                              return true
-                            }
-                            // 실제 데이터는 선택된 학생만 표시
-                            return !selectedStudentId || detail.studentId === selectedStudentId
+                            // 선택된 학생의 데이터만 표시
+                            return selectedStudentId && detail.studentId === selectedStudentId
                           })
                           .map((detail) => {
                             const dateStr = detail.date ? new Date(detail.date).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) : '-'
