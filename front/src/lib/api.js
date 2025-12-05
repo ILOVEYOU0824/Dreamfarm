@@ -1,10 +1,12 @@
 // 백엔드 기본 URL
-// - 개발/배포 환경 모두에서 VITE_API_BAS 를 우선 사용
-//   예) http://localhost:3000, https://dreamproject-ia6s.onrender.com
-// - 없으면 VITE_API_BASE 를 쓰고, 그것도 없으면 '/api' 를 기본값으로 사용
+// - 개발/배포 환경 모두에서 VITE_API_URL 을 우선 사용
+//   예) http://localhost:3000, https://dreamfarm.onrender.com
+// - 없으면 VITE_API_BASE, VITE_API_BAS 순서로 확인
+// - 모두 없으면 '/api' 를 기본값으로 사용
 const RAW_BASE =
-  import.meta.env.VITE_API_BAS ||
+  import.meta.env.VITE_API_URL ||
   import.meta.env.VITE_API_BASE ||
+  import.meta.env.VITE_API_BAS ||
   '/api'
 
 // 끝에 붙은 슬래시는 제거 (ex: https://.../ -> https://...)
@@ -12,6 +14,7 @@ const API_BASE = RAW_BASE.replace(/\/+$/, '')
 
 // 디버깅: 환경 변수 확인 (개발 중에만)
 if (typeof window !== 'undefined') {
+  console.log('[API] VITE_API_URL:', import.meta.env.VITE_API_URL)
   console.log('[API] VITE_API_BASE:', import.meta.env.VITE_API_BASE)
   console.log('[API] RAW_BASE:', RAW_BASE)
   console.log('[API] API_BASE:', API_BASE)
