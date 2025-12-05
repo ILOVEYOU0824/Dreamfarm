@@ -1039,24 +1039,8 @@ function splitRawTextByDateBlocks(rawText) {
 function parseJsonFromText(text) {
   if (!text) return null;
 
-  // 1) 전체를 순수 JSON으로 먼저 시도
-  try {
-    const obj = JSON.parse(text);
-    if (Array.isArray(obj)) {
-      return { records: obj };
-    }
-    if (obj && typeof obj === 'object') {
-      if (Array.isArray(obj.records)) return obj;
-      const alt = obj.data || obj.items || obj.logs || null;
-      if (Array.isArray(alt)) return { records: alt };
-      return obj;
-    }
-  } catch (e) {
-    console.warn('parseJsonFromText: raw JSON parse 실패:', e);
-  }
-
-  // 2) ```json ... ``` 코드블록에 담긴 경우 파싱
-  const codeBlockMatch = text.match(/```json([\s\S]*?)```/i);
+  // 1) ```json ... ``` 코드블록에 담긴 경우 먼저 파싱 (AI가 마크다운 형식으로 반환하는 경우가 많음)
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (codeBlockMatch) {
     const inner = codeBlockMatch[1].trim();
     try {
@@ -1073,6 +1057,22 @@ function parseJsonFromText(text) {
     } catch (e) {
       console.warn('parseJsonFromText: code block JSON parse 실패:', e);
     }
+  }
+
+  // 2) 전체를 순수 JSON으로 시도
+  try {
+    const obj = JSON.parse(text);
+    if (Array.isArray(obj)) {
+      return { records: obj };
+    }
+    if (obj && typeof obj === 'object') {
+      if (Array.isArray(obj.records)) return obj;
+      const alt = obj.data || obj.items || obj.logs || null;
+      if (Array.isArray(alt)) return { records: alt };
+      return obj;
+    }
+  } catch (e) {
+    console.warn('parseJsonFromText: raw JSON parse 실패:', e);
   }
 
   // 3) 텍스트에서 첫 { ... } 블록만 잘라 JSON 시도
@@ -1342,38 +1342,70 @@ async function runAutoExtractionForUpload(uploadRow, rawText) {
     console.log('[AUTO AI] Gemini 호출 시작. model=', GEMINI_MODEL);
 
     // 3) Gemini 호출 (JSON-only는 프롬프트로 강하게 요구, responseMimeType는 제거)
+    // 503 에러 재시도 로직 포함
+    const maxRetries = 3;
     let result;
-    try {
-      result = await model.generateContent({
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: extractionPrompt }],
+    let lastApiError = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        result = await model.generateContent({
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: extractionPrompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.2,
+            // maxOutputTokens 명시 안 함 → 기본값 사용
+            // responseMimeType: 'application/json', // JSON 모드는 일단 사용하지 않음
           },
-        ],
-        generationConfig: {
-          temperature: 0.2,
-          // maxOutputTokens 명시 안 함 → 기본값 사용
-          // responseMimeType: 'application/json', // JSON 모드는 일단 사용하지 않음
-        },
-      });
-    } catch (apiError) {
-      // 429 에러 (할당량 초과) 특별 처리
-      if (apiError.message && apiError.message.includes('429')) {
-        const quotaErrorMsg = 'Gemini API 일일 할당량(250회)을 초과했습니다. 내일까지 기다리시거나 유료 플랜으로 업그레이드해주세요.';
-        console.error('[AUTO AI] Gemini API 할당량 초과:', apiError.message);
-        await supabase
-          .from('ingest_uploads')
-          .update({
-            status: 'error',
-            error: quotaErrorMsg,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', effectiveUpload.id);
-        return;
+        });
+        break; // 성공 시 루프 종료
+      } catch (apiError) {
+        lastApiError = apiError;
+        const errorMessage = apiError.message || apiError.toString() || '';
+        
+        // 429 에러 (할당량 초과) 특별 처리 - 재시도 불가
+        if (errorMessage.includes('429') || 
+            errorMessage.includes('quota') || 
+            errorMessage.includes('Quota exceeded') ||
+            errorMessage.includes('Too Many Requests')) {
+          const quotaErrorMsg = 'Gemini API 일일 할당량(250회)을 초과했습니다. 내일까지 기다리시거나 유료 플랜으로 업그레이드해주세요.';
+          console.error('[AUTO AI] Gemini API 할당량 초과:', apiError.message);
+          await supabase
+            .from('ingest_uploads')
+            .update({
+              status: 'error',
+              error: quotaErrorMsg,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', effectiveUpload.id);
+          return;
+        }
+        
+        // 503 에러 (서버 과부하) - 재시도 가능
+        const is503Error = errorMessage.includes('503') || 
+                          errorMessage.includes('Service Unavailable') ||
+                          errorMessage.includes('overloaded');
+        
+        if (is503Error && attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 지수 백오프: 1초, 2초, 4초
+          console.warn(`[AUTO AI] Gemini API 503 에러 (시도 ${attempt}/${maxRetries}), ${delay}ms 후 재시도...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue; // 재시도
+        }
+        
+        // 재시도 불가능하거나 503이 아닌 다른 에러
+        if (attempt === maxRetries) {
+          throw apiError; // 최대 재시도 횟수 초과 시 에러 던지기
+        }
       }
-      // 다른 API 에러는 재던지기
-      throw apiError;
+    }
+    
+    if (!result) {
+      throw lastApiError || new Error('Gemini API 호출 실패');
     }
 
     // 4) 응답에서 텍스트 안전하게 꺼내기
@@ -2919,14 +2951,18 @@ app.get('/api/dashboard', async (req, res) => {
           });
         });
 
-        // 각 활동별로 AI 분석 수행
+        // 각 활동별로 AI 분석 수행 (재시도 로직 포함)
         const abilityPromises = Object.values(activityMap).map(async (activity) => {
-          try {
-            const logsText = activity.logs.map(log => 
-              `날짜: ${log.date}, 감정: ${log.emotion}, 내용: ${log.note}`
-            ).join('\n');
+          const maxRetries = 3;
+          let lastError = null;
+          
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              const logsText = activity.logs.map(log => 
+                `날짜: ${log.date}, 감정: ${log.emotion}, 내용: ${log.note}`
+              ).join('\n');
 
-            const prompt = `다음은 학생의 활동 기록입니다. 이 활동에서 학생의 수행 수준과 주요 능력을 분석해주세요.
+              const prompt = `다음은 학생의 활동 기록입니다. 이 활동에서 학생의 수행 수준과 주요 능력을 분석해주세요.
 
 활동명: ${activity.activity}
 기록:
@@ -2949,40 +2985,86 @@ ${logsText}
 - "우수": 긍정적인 감정이 있고, 활동이 안정적으로 수행된 경우
 - "보통": 기본적인 활동 수행이 이루어진 경우`;
 
-            const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-            const result = await model.generateContent(prompt);
-            const response = result.response;
-            const text = response.text();
-            
-            // JSON 추출
-            let jsonText = text.trim();
-            const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              jsonText = jsonMatch[0];
+              const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+              
+              // 503 에러 재시도 로직
+              let result;
+              try {
+                result = await model.generateContent(prompt);
+              } catch (apiErr) {
+                const errorMessage = apiErr.message || apiErr.toString() || '';
+                const is503Error = errorMessage.includes('503') || 
+                                 errorMessage.includes('Service Unavailable') ||
+                                 errorMessage.includes('overloaded');
+                
+                if (is503Error && attempt < maxRetries) {
+                  const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 지수 백오프: 1초, 2초, 4초
+                  console.warn(`[대시보드] 활동 ${activity.activity} 능력 분석 503 에러 (시도 ${attempt}/${maxRetries}), ${delay}ms 후 재시도...`);
+                  await new Promise(resolve => setTimeout(resolve, delay));
+                  lastError = apiErr;
+                  continue; // 재시도
+                }
+                throw apiErr; // 재시도 불가능하거나 503이 아닌 경우
+              }
+              
+              const response = result.response;
+              const text = response.text();
+              
+              // JSON 추출 (코드 블록 처리 포함)
+              let jsonText = text.trim();
+              
+              // 코드 블록 제거
+              const codeBlockMatch = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/i);
+              if (codeBlockMatch) {
+                jsonText = codeBlockMatch[1].trim();
+              } else {
+                // 코드 블록이 없으면 첫 번째 { ... } 블록 추출
+                const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  jsonText = jsonMatch[0];
+                }
+              }
+              
+              const analysis = JSON.parse(jsonText);
+              
+              return {
+                id: `ability_${activity.activity}_${Date.now()}`,
+                activity: activity.activity,
+                date: activity.date,
+                performanceLevel: analysis.performanceLevel || '보통', // "매우 우수", "우수", "보통" 중 하나
+                abilityDistribution: analysis.abilityDistribution || { difficult: 20, normal: 50, good: 30 },
+                keyAbilities: Array.isArray(analysis.keyAbilities) ? analysis.keyAbilities : []
+              };
+            } catch (err) {
+              lastError = err;
+              const errorMessage = err.message || err.toString() || '';
+              const is503Error = errorMessage.includes('503') || 
+                               errorMessage.includes('Service Unavailable') ||
+                               errorMessage.includes('overloaded');
+              
+              if (is503Error && attempt < maxRetries) {
+                const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+                console.warn(`[대시보드] 활동 ${activity.activity} 능력 분석 503 에러 (시도 ${attempt}/${maxRetries}), ${delay}ms 후 재시도...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+                continue; // 재시도
+              }
+              
+              // 재시도 불가능하거나 503이 아닌 경우
+              if (attempt === maxRetries) {
+                console.error(`[대시보드] 활동 ${activity.activity} 능력 분석 실패 (최대 재시도 횟수 초과):`, err);
+              }
             }
-            
-            const analysis = JSON.parse(jsonText);
-            
-            return {
-              id: `ability_${activity.activity}_${Date.now()}`,
-              activity: activity.activity,
-              date: activity.date,
-              performanceLevel: analysis.performanceLevel || '보통', // "매우 우수", "우수", "보통" 중 하나
-              abilityDistribution: analysis.abilityDistribution || { difficult: 20, normal: 50, good: 30 },
-              keyAbilities: Array.isArray(analysis.keyAbilities) ? analysis.keyAbilities : []
-            };
-          } catch (err) {
-            console.error(`[대시보드] 활동 ${activity.activity} 능력 분석 실패:`, err);
-            // 기본값 반환
-            return {
-              id: `ability_${activity.activity}_${Date.now()}`,
-              activity: activity.activity,
-              date: activity.date,
-              performanceLevel: '보통',
-              abilityDistribution: { difficult: 20, normal: 50, good: 30 },
-              keyAbilities: []
-            };
           }
+          
+          // 모든 재시도 실패 시 기본값 반환
+          return {
+            id: `ability_${activity.activity}_${Date.now()}`,
+            activity: activity.activity,
+            date: activity.date,
+            performanceLevel: '보통',
+            abilityDistribution: { difficult: 20, normal: 50, good: 30 },
+            keyAbilities: []
+          };
         });
 
         activityAbilityList = await Promise.all(abilityPromises);
