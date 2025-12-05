@@ -214,12 +214,11 @@ export default function StudentList() {
       setLoading(true)
       setError('')
 
-      // 백엔드 API에서 학생 목록 가져오기
-      let apiStudents = []
+      // 백엔드 API에서 학생 목록 가져오기 (배포 환경에서는 API만 사용)
       try {
         const res = await apiFetch('/api/students?limit=1000')
         const items = normalizeStudentsResponse(res)
-        apiStudents = items.map(item => ({
+        const apiStudents = items.map(item => ({
           id: String(item.id ?? item.student_id ?? item.uuid),
           nickname: item.alias || item.nickname || null,
           name: item.name ?? item.display_name ?? item.student_name ?? '이름 없음',
@@ -231,52 +230,16 @@ export default function StudentList() {
         })).filter(item => item.id)
         
         console.log('[학생 목록] API에서 가져온 학생 수:', apiStudents.length)
-        console.log('[학생 목록] 첫 번째 학생 group_name 예시:', apiStudents[0]?.group_name, '원본:', items[0]?.group_name)
-        console.log('[학생 목록] 전체 items 원본:', items)
-        
-        // localStorage에서 group_name이 있는 학생 정보와 병합 (백엔드 응답에 group_name이 없을 경우)
-        const storedStudents = JSON.parse(localStorage.getItem('students') || '[]')
-        apiStudents = apiStudents.map(apiStudent => {
-          const stored = storedStudents.find(s => s.id === apiStudent.id)
-          if (stored && stored.group_name && !apiStudent.group_name) {
-            console.log('[학생 목록] localStorage에서 group_name 복원:', apiStudent.name, stored.group_name)
-            return { ...apiStudent, group_name: stored.group_name }
-          }
-          return apiStudent
-        })
+        setStudents(apiStudents)
       } catch (apiErr) {
         console.error('[학생 목록] API 로드 실패:', apiErr)
-      }
-
-      // localStorage에서도 가져오기 (백엔드와 병합)
-      const stored = localStorage.getItem('students')
-      let storedStudents = []
-      if (stored) {
-        try {
-          storedStudents = JSON.parse(stored)
-        } catch (e) {
-          console.error('[학생 목록] localStorage 파싱 실패:', e)
-        }
-      }
-
-      // API 데이터 우선 사용 (Supabase가 source of truth)
-      // localStorage는 백업용으로만 사용
-      if (apiStudents.length > 0) {
-        // Supabase에서 가져온 학생들만 표시
-        setStudents(apiStudents)
-        // localStorage도 Supabase 데이터로 동기화
-        localStorage.setItem('students', JSON.stringify(apiStudents))
-      } else {
-        // API 데이터가 없으면 localStorage 데이터 사용 (오프라인 모드)
-        const allStudents = [...apiStudents, ...storedStudents]
-        const uniqueStudents = Array.from(
-          new Map(allStudents.map(s => [s.id, s])).values()
-        )
-        setStudents(uniqueStudents)
+        setError('백엔드에서 학생 목록을 불러오지 못했습니다. 네트워크 연결을 확인해주세요.')
+        setStudents([])
       }
     } catch (e) {
-      console.error(e)
+      console.error('[학생 목록] 전체 로드 실패:', e)
       setError('학생 목록을 불러오는 중 오류가 발생했습니다.')
+      setStudents([])
     } finally {
       setLoading(false)
     }
@@ -350,25 +313,18 @@ export default function StudentList() {
         }
       }
 
-      // 로컬 스토리지에도 저장 (백엔드와 동기화)
-      const updatedStudents = [...students, savedStudent]
-      localStorage.setItem('students', JSON.stringify(updatedStudents))
-      setStudents(updatedStudents)
-
       // 백엔드에 저장 성공한 경우 최신 목록 다시 불러오기 (동기화)
-      // 단, group_name이 백엔드 응답에 없을 수 있으므로 savedStudent를 유지
       if (savedStudent.id && !savedStudent.id.startsWith('student-')) {
         try {
           await fetchStudents()
-          // fetchStudents 후에도 savedStudent의 group_name이 있으면 유지
-          setStudents(prev => prev.map(s => 
-            s.id === savedStudent.id && savedStudent.group_name && !s.group_name
-              ? { ...s, group_name: savedStudent.group_name }
-              : s
-          ))
         } catch (fetchErr) {
           console.error('[학생 추가] 목록 다시 불러오기 실패:', fetchErr)
+          // 실패해도 UI에 추가 (백엔드 저장은 성공했으므로)
+          setStudents(prev => [...prev, savedStudent])
         }
+      } else {
+        // 백엔드 저장 실패 시 에러 표시
+        setError('학생 추가에 실패했습니다. 네트워크 연결을 확인하고 다시 시도해주세요.')
       }
 
       // 입력창 초기화
@@ -458,18 +414,15 @@ export default function StudentList() {
         console.error('[학생 수정] 백엔드 저장 실패, localStorage만 사용:', apiErr)
       }
 
-      // 로컬 스토리지에도 저장
-      const updatedStudents = students.map(s => 
-        s.id === editingStudent.id ? updated : s
-      )
-      localStorage.setItem('students', JSON.stringify(updatedStudents))
-      setStudents(updatedStudents)
-
       // 백엔드에 저장 성공한 경우 최신 목록 다시 불러오기 (동기화)
       try {
         await fetchStudents()
       } catch (fetchErr) {
         console.error('[학생 수정] 목록 다시 불러오기 실패:', fetchErr)
+        // 실패해도 UI 업데이트 (백엔드 저장은 성공했으므로)
+        setStudents(prev => prev.map(s => 
+          s.id === editingStudent.id ? updated : s
+        ))
       }
 
       closeEditModal()
@@ -496,13 +449,6 @@ export default function StudentList() {
           method: 'DELETE',
         })
         console.log('[학생 삭제] 백엔드에서 삭제 완료:', student.name)
-        
-        // 삭제 성공 후 즉시 UI에서 제거 (즉각적인 피드백)
-        const updatedStudents = students.filter(s => s.id !== student.id)
-        setStudents(updatedStudents)
-        
-        // localStorage에서도 제거
-        localStorage.setItem('students', JSON.stringify(updatedStudents))
         
         // 백엔드에서 최신 목록 가져오기 (동기화)
         await fetchStudents()

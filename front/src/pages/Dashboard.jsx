@@ -70,28 +70,8 @@ export default function Dashboard() {
           console.log('[대시보드] API에서 학생 데이터 로드 실패, localStorage 사용:', err)
         }
 
-        // localStorage에서 학생 데이터 가져오기 (백업용)
-        const storedStudents = JSON.parse(localStorage.getItem('students') || '[]')
-        const normalizedStored = storedStudents.map((item, index) => ({
-          id: String(item.id || `student_${index}`),
-          name: item.name || item.student_name || item.display_name || '이름 없음',
-          nickname: item.nickname || item.alias || '',
-          group_name: item.group_name || '',
-          birth_date: item.birth_date || ''
-        }))
-
-        // API 데이터와 localStorage 데이터 병합 (API 우선, 중복 제거)
-        const allStudents = [...apiStudents, ...normalizedStored]
-        const uniqueStudents = Array.from(
-          new Map(allStudents.map(s => [s.id, s])).values()
-        )
-
-        // API 데이터가 있으면 localStorage도 업데이트 (동기화)
-        if (apiStudents.length > 0) {
-          localStorage.setItem('students', JSON.stringify(uniqueStudents))
-        }
-
-        setStudents(uniqueStudents)
+        // API 데이터만 사용 (배포 환경에서는 API가 source of truth)
+        setStudents(apiStudents)
         
         // 학생 분석 레이아웃에 자동으로 추가 (모든 학생 추가)
         if (uniqueStudents.length > 0) {
@@ -128,116 +108,8 @@ export default function Dashboard() {
     }
     loadStudents()
     
-    // 활동 상세 내역 데이터 로드
-    function loadActivityDetails() {
-      try {
-        // localStorage에서 업로드 데이터 가져오기
-        const storedUploads = JSON.parse(localStorage.getItem('uploads') || '[]')
-        
-        // 활동 상세 내역 데이터 변환
-        const details = []
-        storedUploads.forEach(upload => {
-          // analysisByStudent에서 데이터 추출
-          if (upload.analysisByStudent) {
-            Object.entries(upload.analysisByStudent).forEach(([studentId, studentData]) => {
-              const studentAnalysis = studentData || {}
-              const analysis = studentAnalysis.analysis || {}
-              const activityTypes = studentAnalysis.activityTypes || {}
-              const students = upload.analysis?.students || [{ id: studentId, name: upload.student_name || '학생' }]
-              
-              // 각 활동 유형별로 데이터 생성
-              Object.entries(activityTypes).forEach(([typeKey, typeData]) => {
-                if (typeData && typeData.selected && typeData.detail) {
-                  const activityTypeMap = {
-                    harvest: '수확',
-                    sowing: '파종',
-                    manage: '관리',
-                    observe: '관찰',
-                    etc: '기타'
-                  }
-                  
-                  details.push({
-                    id: `${upload.id}_${studentId}_${typeKey}`,
-                    date: analysis.date || upload.uploaded_at || upload.created_at || '',
-                    activity: typeData.detail || analysis.activityName || '',
-                    type: activityTypeMap[typeKey] || '기타',
-                    activityType: students.length > 1 ? '단체활동' : '개별활동',
-                    studentComment: analysis.note || analysis.emotionSummary || '',
-                    studentName: students.find(s => s.id === studentId)?.name || upload.student_name || '학생',
-                    studentId: studentId
-                  })
-                }
-              })
-              
-              // 활동 유형이 없는 경우 기본 데이터 추가
-              if (Object.values(activityTypes).every(t => !t || !t.selected)) {
-                if (analysis.activityName || analysis.date) {
-                  details.push({
-                    id: `${upload.id}_${studentId}_default`,
-                    date: analysis.date || upload.uploaded_at || upload.created_at || '',
-                    activity: analysis.activityName || '',
-                    type: analysis.activityType || '기타',
-                    activityType: students.length > 1 ? '단체활동' : '개별활동',
-                    studentComment: analysis.note || analysis.emotionSummary || '',
-                    studentName: students.find(s => s.id === studentId)?.name || upload.student_name || '학생',
-                    studentId: studentId
-                  })
-                }
-              }
-            })
-          }
-          
-          // 기존 analysis 구조도 확인
-          if (upload.analysis && !upload.analysisByStudent) {
-            const analysis = upload.analysis
-            const students = analysis.students || []
-            
-            if (students.length > 0) {
-              students.forEach(student => {
-                if (analysis.activityName || analysis.date) {
-                  details.push({
-                    id: `${upload.id}_${student.id}_default`,
-                    date: analysis.date || upload.uploaded_at || upload.created_at || '',
-                    activity: analysis.activityName || '',
-                    type: analysis.activityType || '기타',
-                    activityType: students.length > 1 ? '단체활동' : '개별활동',
-                    studentComment: analysis.note || analysis.emotionSummary || '',
-                    studentName: student.name || student.student_name || '학생',
-                    studentId: student.id
-                  })
-                }
-              })
-            } else if (analysis.activityName || analysis.date) {
-              details.push({
-                id: `${upload.id}_default`,
-                date: analysis.date || upload.uploaded_at || upload.created_at || '',
-                activity: analysis.activityName || '',
-                type: analysis.activityType || '기타',
-                activityType: '개별활동',
-                studentComment: analysis.note || analysis.emotionSummary || '',
-                studentName: upload.student_name || '학생',
-                studentId: null
-              })
-            }
-          }
-        })
-        
-        // 예시 데이터 제거 - 실제 데이터만 표시
-        
-        // 날짜순 정렬 (최신순)
-        details.sort((a, b) => {
-          const dateA = new Date(a.date || 0)
-          const dateB = new Date(b.date || 0)
-          return dateB - dateA
-        })
-        
-        setActivityDetails(details)
-      } catch (err) {
-        console.error('활동 상세 내역 로드 실패:', err)
-      }
-    }
-    
-    loadActivityDetails()
+    // 활동 상세 내역 데이터는 대시보드 API에서 가져오므로 여기서는 제거
+    // (loadStudentDashboardData에서 처리됨)
     
     // 예시 데이터 제거 - 실제 데이터만 사용
     setActivityAbilityAnalysis([])

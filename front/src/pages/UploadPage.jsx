@@ -251,17 +251,11 @@ export default function UploadPage() {
 
   // -------------------- 로직 (API 호출 등) --------------------
   
-  // 업로드 목록 갱신
+  // 업로드 목록 갱신 (배포 환경에서는 캐시만 유지, localStorage 제거)
   function updateUploads(updater) {
     setUploads(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater
       uploadsCache = next
-      // localStorage에도 저장
-      try {
-        localStorage.setItem('uploads', JSON.stringify(next))
-      } catch (e) {
-        console.error('localStorage 저장 실패:', e)
-      }
       return next
     })
   }
@@ -370,16 +364,7 @@ export default function UploadPage() {
         setStudentsMaster(students)
       } catch (e) {
         console.error('학생 목록 로드 실패:', e)
-        // 실패 시 localStorage에서 로드 시도
-        try {
-          const storedStudents = localStorage.getItem('students')
-          if (storedStudents) {
-            const students = JSON.parse(storedStudents)
-            setStudentsMaster(students)
-          }
-        } catch (e2) {
-          console.error('localStorage에서 학생 목록 로드 실패:', e2)
-        }
+        setStudentsMaster([])
       }
     }
     
