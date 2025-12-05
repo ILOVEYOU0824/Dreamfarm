@@ -299,22 +299,30 @@ export default function StudentList() {
         console.log('[학생 추가] 백엔드에 저장 완료:', savedStudent)
         console.log('[학생 추가] group_name 최종값:', savedStudent.group_name)
       } catch (apiErr) {
-        console.error('[학생 추가] 백엔드 저장 실패, localStorage만 사용:', apiErr)
-        // 백엔드 저장 실패 시 localStorage만 사용
-        savedStudent = {
-          id: `student-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          nickname: newNickname.trim() || null,
-          name: newName.trim(),
-          birth_date: newBirthDate || null,
-          group_name: newGroupName.trim() || null,
-          log_content: newLogContent || null,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+        console.error('[학생 추가] 백엔드 저장 실패:', apiErr)
+        console.error('[학생 추가] 에러 상세:', {
+          message: apiErr.message,
+          status: apiErr.status,
+          body: apiErr.body
+        })
+        
+        // 에러 메시지 추출 (우선순위: body.message > message > 기본 메시지)
+        let errorMessage = '학생 추가에 실패했습니다.'
+        if (apiErr.body?.message) {
+          errorMessage = apiErr.body.message
+        } else if (apiErr.message) {
+          errorMessage = apiErr.message
+        } else if (typeof apiErr === 'string') {
+          errorMessage = apiErr
         }
+        
+        // 사용자에게 에러 표시
+        setError(errorMessage)
+        throw new Error(errorMessage) // 상위 catch로 전달하여 추가 처리 중단
       }
 
       // 백엔드에 저장 성공한 경우 최신 목록 다시 불러오기 (동기화)
-      if (savedStudent.id && !savedStudent.id.startsWith('student-')) {
+      if (savedStudent && savedStudent.id && !savedStudent.id.startsWith('student-')) {
         try {
           await fetchStudents()
         } catch (fetchErr) {
@@ -322,9 +330,6 @@ export default function StudentList() {
           // 실패해도 UI에 추가 (백엔드 저장은 성공했으므로)
           setStudents(prev => [...prev, savedStudent])
         }
-      } else {
-        // 백엔드 저장 실패 시 에러 표시
-        setError('학생 추가에 실패했습니다. 네트워크 연결을 확인하고 다시 시도해주세요.')
       }
 
       // 입력창 초기화

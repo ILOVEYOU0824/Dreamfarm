@@ -598,7 +598,15 @@ app.post('/api/students', async (req, res) => {
 
     if (error) {
       console.error('학생 생성 에러:', error);
-      return res.status(500).json({ message: 'DB Error', error });
+      console.error('학생 생성 에러 상세:', JSON.stringify(error, null, 2));
+      // Supabase 에러 메시지 추출
+      const errorMessage = error.message || error.details || '데이터베이스 오류가 발생했습니다.';
+      const errorCode = error.code || 'UNKNOWN';
+      return res.status(500).json({ 
+        message: `학생 추가 실패: ${errorMessage}`,
+        error: error,
+        errorCode: errorCode
+      });
     }
 
     console.log('[학생 추가] 저장된 데이터:', data);
@@ -607,7 +615,12 @@ app.post('/api/students', async (req, res) => {
     return res.status(201).json(data);
   } catch (e) {
     console.error('POST /api/students 에러:', e);
-    return res.status(500).json({ message: 'Server Error', error: e.toString() });
+    console.error('POST /api/students 에러 스택:', e.stack);
+    return res.status(500).json({ 
+      message: `서버 오류: ${e.message || e.toString()}`,
+      error: e.toString(),
+      stack: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 });
 
