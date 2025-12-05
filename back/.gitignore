@@ -8,3 +8,7 @@ front/.env
 
 back/node_modules
 back/.env
+back/api
+back/soso.env
+*.env
+*.key
