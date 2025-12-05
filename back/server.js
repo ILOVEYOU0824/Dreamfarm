@@ -359,13 +359,47 @@ ${activityData.slice(0, 10).map((log, idx) =>
       parts: [{ text: message }]
     });
 
-    const result = await model.generateContent({
-      contents,
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 1000,
-      },
-    });
+    // 503 에러 재시도 로직 포함
+    const maxRetries = 3;
+    let result;
+    let lastError = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        result = await model.generateContent({
+          contents,
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 1000,
+          },
+        });
+        break; // 성공 시 루프 종료
+      } catch (apiErr) {
+        lastError = apiErr;
+        const errorMessage = apiErr.message || apiErr.toString() || '';
+        
+        // 503 에러 (서버 과부하) - 재시도 가능
+        const is503Error = errorMessage.includes('503') || 
+                          errorMessage.includes('Service Unavailable') ||
+                          errorMessage.includes('overloaded');
+        
+        if (is503Error && attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // 지수 백오프: 1초, 2초, 4초
+          console.warn(`[AI Chat] 503 에러 (시도 ${attempt}/${maxRetries}), ${delay}ms 후 재시도...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue; // 재시도
+        }
+        
+        // 재시도 불가능하거나 503이 아닌 다른 에러
+        if (attempt === maxRetries) {
+          throw apiErr; // 최대 재시도 횟수 초과 시 에러 던지기
+        }
+      }
+    }
+    
+    if (!result) {
+      throw lastError || new Error('Gemini API 호출 실패');
+    }
 
     const responseText = result?.response?.text?.() || 
                         result?.response?.candidates?.[0]?.content?.parts?.[0]?.text || 
