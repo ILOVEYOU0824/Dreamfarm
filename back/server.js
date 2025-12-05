@@ -474,13 +474,55 @@ app.get('/api/users', async (req, res) => {
   res.json(data);
 });
 
-const server = app.listen(port, '0.0.0.0', () => {
-  console.log(`서버 실행됨: http://localhost:${port}`);
-});
+// 서버 시작 전에 필요한 컬럼 확인 및 추가
+async function ensureGroupNameColumn() {
+  try {
+    // 컬럼 존재 여부 확인 (간접적으로 확인)
+    const { data, error } = await supabase
+      .from('students')
+      .select('group_name')
+      .limit(1);
+    
+    // 에러가 없으면 컬럼이 존재하는 것으로 간주
+    if (!error) {
+      console.log('[초기화] group_name 컬럼이 이미 존재합니다.');
+      return true;
+    }
+    
+    // PGRST204 에러는 컬럼이 없다는 의미
+    if (error && error.code === 'PGRST204') {
+      console.log('[초기화] group_name 컬럼이 없습니다. SQL을 사용하여 추가해주세요.');
+      console.log('[초기화] Supabase SQL Editor에서 다음 SQL을 실행하세요:');
+      console.log('[초기화] ALTER TABLE students ADD COLUMN group_name TEXT;');
+      return false;
+    }
+    
+    // 다른 에러는 무시 (테이블이 비어있을 수도 있음)
+    console.log('[초기화] group_name 컬럼 확인 중... (에러 무시)');
+    return true;
+  } catch (e) {
+    console.warn('[초기화] group_name 컬럼 확인 실패:', e.message);
+    return false;
+  }
+}
 
-server.on('error', (err) => {
-  console.error('[server.listen error]', err && err.stack ? err.stack : err);
-});
+// 서버 시작
+async function startServer() {
+  // 컬럼 확인 (비동기로 실행, 서버 시작을 막지 않음)
+  ensureGroupNameColumn().catch(err => {
+    console.warn('[초기화] 컬럼 확인 중 오류 (무시):', err.message);
+  });
+  
+  const server = app.listen(port, '0.0.0.0', () => {
+    console.log(`서버 실행됨: http://localhost:${port}`);
+  });
+  
+  server.on('error', (err) => {
+    console.error('[server.listen error]', err && err.stack ? err.stack : err);
+  });
+}
+
+startServer();
 
 // 프로세스가 즉시 종료되는 환경을 방지하기 위한 임시 keep-alive
 // 일부 환경에서 이벤트 루프가 바로 종료되는 문제가 있어 stdin을 유지합니다.
@@ -585,8 +627,13 @@ app.post('/api/students', async (req, res) => {
       alias: alias ?? null,
       school_level: school_level ?? null,
       memo: memo ?? null,
-      group_name: group_name && group_name.trim() ? group_name.trim() : null,
     };
+    
+    // group_name 컬럼이 존재하는 경우에만 추가 (Supabase 스키마에 따라 선택적)
+    // group_name이 있고 유효한 값이면 추가
+    if (group_name && group_name.trim()) {
+      insertData.group_name = group_name.trim();
+    }
 
     console.log('[학생 추가] insertData:', insertData);
     
@@ -665,8 +712,9 @@ app.patch('/api/students/:id', async (req, res) => {
     if (alias !== undefined) updateData.alias = alias;
     if (school_level !== undefined) updateData.school_level = school_level;
     if (memo !== undefined) updateData.memo = memo;
-    if (group_name !== undefined) {
-      updateData.group_name = group_name && group_name.trim() ? group_name.trim() : null;
+    // group_name 컬럼이 존재하는 경우에만 추가 (Supabase 스키마에 따라 선택적)
+    if (group_name !== undefined && group_name && group_name.trim()) {
+      updateData.group_name = group_name.trim();
     }
 
     if (Object.keys(updateData).length === 0) {

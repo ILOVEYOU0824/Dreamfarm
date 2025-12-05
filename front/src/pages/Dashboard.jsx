@@ -74,33 +74,33 @@ export default function Dashboard() {
         setStudents(apiStudents)
         
         // 학생 분석 레이아웃에 자동으로 추가 (모든 학생 추가)
-        if (uniqueStudents.length > 0) {
+        if (apiStudents.length > 0) {
           // 모든 학생을 selectedStudents에 추가 (페이지네이션으로 표시)
-          const allStudentIds = uniqueStudents.map(s => s.id)
+          const allStudentIds = apiStudents.map(s => s.id)
           setSelectedStudents(allStudentIds)
           setFilteredStudents(allStudentIds) // 초기에는 모든 학생 표시
           
           // 학생 이름 매핑 생성
           const namesMap = {}
-          uniqueStudents.forEach(s => {
+          apiStudents.forEach(s => {
             namesMap[s.id] = s.name || s.student_name || s.display_name || '학생'
           })
           setStudentNamesMap(namesMap)
           
           // 모든 학생의 기록수를 0으로 초기화
           const initialRecordCounts = {}
-          uniqueStudents.forEach(s => {
+          apiStudents.forEach(s => {
             initialRecordCounts[s.id] = 0
           })
           setStudentRecordCounts(initialRecordCounts)
           
           // 모든 학생의 기록수 로드 (병렬로)
-          loadAllStudentRecordCounts(uniqueStudents.map(s => s.id))
+          loadAllStudentRecordCounts(apiStudents.map(s => s.id))
           
           // 첫 페이지로 초기화
           setCurrentPage(0)
           
-          if(uniqueStudents.length > 0) setSelectedStudentId(uniqueStudents[0].id) // 첫 학생 자동 선택
+          if(apiStudents.length > 0) setSelectedStudentId(apiStudents[0].id) // 첫 학생 자동 선택
         }
       } catch (err) {
         console.error('학생 데이터 로드 실패:', err)
