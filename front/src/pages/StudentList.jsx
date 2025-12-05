@@ -300,21 +300,39 @@ export default function StudentList() {
         console.log('[학생 추가] group_name 최종값:', savedStudent.group_name)
       } catch (apiErr) {
         console.error('[학생 추가] 백엔드 저장 실패:', apiErr)
-        console.error('[학생 추가] 에러 상세:', {
+        console.error('[학생 추가] 에러 상세:', JSON.stringify({
           message: apiErr.message,
           status: apiErr.status,
-          body: apiErr.body
-        })
+          body: apiErr.body,
+          error: apiErr.error,
+          stack: apiErr.stack
+        }, null, 2))
         
         // 에러 메시지 추출 (우선순위: body.message > message > 기본 메시지)
         let errorMessage = '학생 추가에 실패했습니다.'
-        if (apiErr.body?.message) {
-          errorMessage = apiErr.body.message
-        } else if (apiErr.message) {
-          errorMessage = apiErr.message
-        } else if (typeof apiErr === 'string') {
-          errorMessage = apiErr
+        
+        // body 객체에서 메시지 추출
+        if (apiErr.body) {
+          if (apiErr.body.message) {
+            errorMessage = apiErr.body.message
+          } else if (apiErr.body.error?.message) {
+            errorMessage = apiErr.body.error.message
+          } else if (typeof apiErr.body === 'string') {
+            errorMessage = apiErr.body
+          }
         }
+        
+        // body가 없으면 message에서 추출
+        if (errorMessage === '학생 추가에 실패했습니다.' && apiErr.message) {
+          errorMessage = apiErr.message
+        }
+        
+        // 여전히 기본 메시지면 에러 코드 확인
+        if (errorMessage === '학생 추가에 실패했습니다.' && apiErr.body?.errorCode) {
+          errorMessage = `데이터베이스 오류 (코드: ${apiErr.body.errorCode})`
+        }
+        
+        console.error('[학생 추가] 최종 에러 메시지:', errorMessage)
         
         // 사용자에게 에러 표시
         setError(errorMessage)
