@@ -785,6 +785,9 @@ button:focus-visible {
   border-radius: 18px;
   background: var(--bg-white);
   border: 1px solid var(--border-color);
+  max-height: 260px;    /* 원하는 높이로 조절 */
+  overflow-y: auto;     /* 세로 스크롤 켜기 */
+  padding-right: 4px;   /* 스크롤바 때문에 글 잘리지 않게 여백 */
 }
 
 .section-header h2 {
@@ -2219,6 +2222,19 @@ button:focus-visible {
   .detail-textarea,
   .detail-text-box {
     min-height: 260px;
+  }
+
+  .detail-analysis-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .analysis-scroll-panel {
+    max-height: none;
+  }
+
+  .upload-card-summary-row {
+    flex-direction: column;
   }
 }
 

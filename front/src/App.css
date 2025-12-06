@@ -42,9 +42,11 @@ body {
 
   color: var(--text-dark);
 
-  height: 100vh;
+  min-height: 100vh;
 
-  overflow: hidden;
+  overflow-x: hidden;
+
+  overflow-y: auto;
 
 }
 
@@ -54,9 +56,9 @@ body {
 
   display: flex;
 
-  width: 100vw;
+  width: 100%;
 
-  height: 100vh;
+  min-height: 100vh;
 
   padding: 20px;
 
@@ -64,6 +66,17 @@ body {
 
   background: #98B28575;
 
+  box-sizing: border-box;
+
+}
+
+/* 900px 이하에서만 방향/패딩 조정 */
+@media (max-width: 900px) {
+  .app-container {
+    flex-direction: column;
+    padding: 12px;
+    gap: 12px;
+  }
 }
 
 /* 1. 왼쪽 사이드바 */
@@ -83,6 +96,10 @@ body {
   border-radius: 30px;
 
   box-shadow: 0 12px 30px rgba(140, 110, 59, 0.15);
+
+  overflow-y: auto;
+
+  max-height: 100vh;
 
 }
 
@@ -278,6 +295,8 @@ body {
 
   display: flex;
 
+  overflow-y: auto;
+
 }
 
 /* 대시보드 내부 레이아웃 */
@@ -325,6 +344,8 @@ body {
   overflow-y: auto;
 
   box-shadow: -12px 0 24px rgba(179, 151, 102, 0.18);
+
+  max-height: 100vh;
 
 }
 
@@ -1582,6 +1603,8 @@ select:focus {
 
   overflow-y: auto;
 
+  box-sizing: border-box;
+
 }
 
 /* 제목 */
@@ -1628,30 +1651,80 @@ select:focus {
 
 }
 
+/* 업로드 페이지 기본(데스크탑) */
 .upload-layout {
 
   display: flex;
 
   width: 100%;
 
-  height: auto;
-
-  padding: 0 20px 20px;
+  height: 100%;
 
   position: relative;
 
   justify-content: center;
 
-  align-items: flex-start;
+  align-items: center;
 
-  padding-right: 430px;
+  padding: 0;
+
+  padding-right: 430px;        /* 오른쪽 패널 자리 확보 */
 
   box-sizing: border-box;
 
 }
 
+/* -------- 1200px 이하: 오른쪽 패널 아래로 내리기 -------- */
+@media (max-width: 1200px) {
+  .upload-layout {
+    padding-right: 0 !important;
+    align-items: flex-start !important;
+  }
+
+  .upload-right-panel {
+    position: static !important;        /* fixed 해제 */
+    right: auto !important;
+    top: auto !important;
+    bottom: auto !important;
+    width: 100% !important;
+    height: auto !important;
+    margin-top: 24px;
+    box-shadow: 0 8px 20px rgba(156, 132, 90, 0.18);
+  }
+}
+
+/* -------- 900px 이하: 전체 세로 스택 -------- */
+@media (max-width: 900px) {
+  .upload-layout {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    padding: 0 !important;
+  }
+
+  .upload-left-panel {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    min-height: 420px;
+    padding: 28px 20px;
+    margin: 0;
+  }
+}
+
+/* -------- 600px 이하: 여백 줄이기 -------- */
+@media (max-width: 600px) {
+  .page-container {
+    padding: 20px;
+  }
+
+  .upload-header-section {
+    padding: 24px 16px 16px !important;
+  }
+}
+
 /* 중앙: 파일 업로드 드롭존 */
 
+/* 중앙: 파일 업로드 드롭존 */
 .upload-left-panel {
 
   max-width: 900px;
@@ -1674,29 +1747,25 @@ select:focus {
 
   align-items: center;
 
-  justify-content: flex-start;
+  justify-content: center;
 
   transition: all 0.3s ease;
 
   cursor: pointer;
 
-  min-height: auto;
-
-  max-height: calc(100vh - 200px);
+  min-height: 600px;
 
   position: relative;
 
   margin: 0 auto;
 
-  padding: 24px 30px;
+  padding: 40px;
 
-  align-self: flex-start;
+  align-self: center;
 
   box-shadow: 0 8px 24px rgba(90, 127, 74, 0.25);
 
-  overflow-y: auto;
-
-  overflow-x: hidden;
+  overflow: hidden;
 
 }
 
@@ -2116,8 +2185,7 @@ select:focus {
   border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
-/* 오른쪽: 업로드 목록 패널 */
-
+/* 오른쪽 고정 패널 기본 */
 .upload-right-panel {
 
   position: fixed;
@@ -2145,6 +2213,8 @@ select:focus {
   flex-direction: column;
 
   z-index: 10;
+
+  overflow-y: auto;
 
 }
 
