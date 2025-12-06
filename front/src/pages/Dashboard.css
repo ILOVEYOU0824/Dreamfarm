@@ -133,6 +133,29 @@
   border: 1px solid #d1d5db;
   height: 32px;
   box-sizing: border-box;
+  position: relative;
+}
+
+/* 날짜 입력 필드 래퍼 */
+.date-input-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+/* 기록이 있는 날짜에 빨간 점 표시를 위한 스타일 */
+/* HTML5 date input의 캘린더는 브라우저 기본 UI이므로 직접 스타일링이 어렵습니다 */
+/* 대신 날짜 입력 필드 옆에 빨간 점을 표시하여 기록이 있음을 알립니다 */
+.date-input-wrapper[data-has-records="true"]::after {
+  content: '●';
+  position: absolute;
+  right: 32px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 8px;
+  color: #ef4444;
+  pointer-events: none;
+  z-index: 1;
+  line-height: 1;
 }
 
 .student-filter-input:focus {
