@@ -8,7 +8,7 @@ export default function Login() {
   const navigate = useNavigate()
   
   // 상태 관리
-  const [userType, setUserType] = useState('sub_admin') 
+  const [userType] = useState('admin') // 운영자만 사용
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -98,34 +98,6 @@ export default function Login() {
       marginBottom: '30px',
       color: '#000'
     },
-    toggleGroup: {
-      background: '#F4F4F4',
-      borderRadius: '50px',
-      padding: '5px',
-      display: 'flex',
-      marginBottom: '30px'
-    },
-    toggleBtn: {
-      flex: 1,
-      padding: '10px',
-      border: 'none',
-      background: 'transparent',
-      borderRadius: '40px',
-      fontWeight: '700',
-      fontSize: '14px',
-      color: '#888',             
-      cursor: 'pointer',
-      transition: 'all 0.3s',
-      textAlign: 'center',      // 텍스트 가로 정렬
-      display: 'flex',          // 텍스트 세로 정렬을 위해 flex 사용
-      alignItems: 'center',
-      justifyContent: 'center'
-    },
-    toggleBtnActive: {
-      backgroundColor: '#EF831F', 
-      color: 'white',             
-      boxShadow: '0 2px 6px rgba(0,0,0,0.1)'
-    },
     inputGroup: {
       textAlign: 'left',
       marginBottom: '15px'
@@ -173,23 +145,6 @@ export default function Login() {
       color: '#888',
       marginBottom: '30px',
       lineHeight: '1.4'
-    },
-    snsIcons: {
-      display: 'flex',
-      justifyContent: 'center',
-      gap: '12px'
-    },
-    snsIcon: {
-      width: '38px',
-      height: '38px',
-      borderRadius: '50%',
-      border: 'none',
-      cursor: 'pointer',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontWeight: 'bold',
-      fontSize: '13px'
     }
   }
 
@@ -201,28 +156,6 @@ export default function Login() {
 
       <div style={styles.card}>
         <h1 style={styles.title}>로그인</h1>
-
-        <div style={styles.toggleGroup}>
-          {/* 👇 [수정] button 태그를 div 태그로 변경하여 전역 CSS 간섭 차단 */}
-          <div
-            style={{ 
-              ...styles.toggleBtn, 
-              ...(userType === 'admin' ? styles.toggleBtnActive : {}) 
-            }}
-            onClick={() => setUserType('admin')}
-          >
-            운영자
-          </div>
-          <div
-            style={{ 
-              ...styles.toggleBtn, 
-              ...(userType === 'sub_admin' ? styles.toggleBtnActive : {}) 
-            }}
-            onClick={() => setUserType('sub_admin')}
-          >
-            부운영자
-          </div>
-        </div>
 
         <form onSubmit={handleLogin}>
           <div style={styles.inputGroup}>
@@ -256,29 +189,16 @@ export default function Login() {
                 <input type="checkbox" /> 보안 로그인
               </label>
             </div>
-            <div>
-              <span style={{cursor:'pointer'}}>아이디 찾기</span> | <span style={{cursor:'pointer'}}>비밀번호 찾기</span>
-            </div>
           </div>
 
           <button type="submit" style={styles.submitBtn} disabled={loading}>
-            {loading ? '로그인 중...' : (userType === 'admin' ? '운영자 로그인' : '부운영자 로그인')}
+            {loading ? '로그인 중...' : '운영자 로그인'}
           </button>
         </form>
 
         <p style={styles.footerText}>
-          장애인과 비장애인들이 함께 어울리는 농장. 꿈이 자라는 뜰 <span style={{color:'#8DA92C', fontWeight:'bold', cursor:'pointer', textDecoration:'underline'}}>가입하기</span>
+          장애인과 비장애인들이 함께 어울리는 농장. 꿈이 자라는 뜰
         </p>
-
-        <div>
-          <p style={{fontSize:'11px', fontWeight:'bold', marginBottom:'15px', color:'#333'}}>SNS 계정으로 이용하기</p>
-          <div style={styles.snsIcons}>
-            <button style={{...styles.snsIcon, background:'#03C75A', color:'white'}}>N</button>
-            <button style={{...styles.snsIcon, background:'black', color:'white'}}></button>
-            <button style={{...styles.snsIcon, background:'white', border:'1px solid #eee', color:'#333'}}>G</button>
-            <button style={{...styles.snsIcon, background:'#FEE500', color:'#3C1E1E', fontSize:'10px'}}>Talk</button>
-          </div>
-        </div>
       </div>
     </div>
   )
