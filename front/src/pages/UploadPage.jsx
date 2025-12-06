@@ -1436,6 +1436,54 @@ export default function UploadPage() {
       // studentsMaster에 추가
       setStudentsMaster(prev => [...prev, newStudent])
       
+      // 등록되지 않은 학생 목록에서 찾기
+      const matchedUnmatched = unmatchedStudents.find(s => s.originalName === newStudentName.trim())
+      
+      // detail.students와 detail.analysisByStudent에 새 학생 추가/업데이트
+      if (matchedUnmatched) {
+        setDetail(p => {
+          const originalId = matchedUnmatched.originalId
+          const newStudentId = newStudent.id
+          
+          // detail.students에서 originalId로 찾은 학생을 새 학생 ID로 업데이트
+          const updatedStudents = p.students.map(s => 
+            String(s.id) === String(originalId) 
+              ? { id: newStudentId, name: newStudent.name }
+              : s
+          )
+          
+          // originalId로 찾은 학생이 없으면 새로 추가
+          const studentExists = p.students.find(s => String(s.id) === String(originalId))
+          if (!studentExists) {
+            updatedStudents.push({ id: newStudentId, name: newStudent.name })
+          }
+          
+          // detail.analysisByStudent에서 originalId의 데이터를 새 학생 ID로 복사
+          const originalAnalysis = p.analysisByStudent[originalId] || {
+            analysis: {
+              emotionTags: [],
+              activityName: '',
+              date: formatDate(p.upload?.uploaded_at),
+              durationMinutes: null,
+              note: ''
+            },
+            activityTypes: buildActivityTypeState()
+          }
+          
+          return {
+            ...p,
+            students: updatedStudents,
+            activeStudentId: newStudentId,
+            analysisByStudent: {
+              ...p.analysisByStudent,
+              [newStudentId]: originalAnalysis, // 기존 분석 데이터 유지
+              // originalId는 그대로 두어도 되지만, 정리하려면 삭제할 수도 있음
+            },
+            saved: false
+          }
+        })
+      }
+      
       // 등록되지 않은 학생 목록에서 제거
       const remainingUnmatched = unmatchedStudents.filter(s => s.originalName !== newStudentName.trim())
       setUnmatchedStudents(remainingUnmatched)
@@ -1830,43 +1878,63 @@ export default function UploadPage() {
           studentName={detail.upload?.student_name}
         />
       </div>
-      {/* 학생 추가 모달 */}
+      {/* 학생 추가 모달 (작은 팝업) */}
       {addStudentModalOpen && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setAddStudentModalOpen(false)}>
-          <div className="modal-card" style={{ maxWidth: '600px', width: '90%' }} onClick={e => e.stopPropagation()}>
-            <div style={{ marginBottom: '20px' }}>
-              <h3 style={{ marginBottom: '8px' }}>등록되지 않은 학생 추가</h3>
-              <p className="muted" style={{ fontSize: '13px', marginBottom: '8px' }}>
-                다음 학생이 학생 목록에 없습니다:
-              </p>
-              <div style={{ 
-                padding: '8px 12px', 
-                background: '#fef2f2', 
-                borderRadius: '6px', 
-                marginBottom: '12px',
-                fontSize: '13px'
-              }}>
-                <strong style={{ color: '#b91c1c' }}>
-                  {unmatchedStudents.map(s => s.originalName).join(', ')}
-                </strong>
-              </div>
-              <p className="muted" style={{ fontSize: '13px' }}>
-                현재 추가할 학생: <strong>{unmatchedStudents[0]?.originalName || ''}</strong>
+          <div 
+            className="card" 
+            style={{ 
+              maxWidth: '700px', 
+              width: '90%',
+              padding: '16px',
+              borderRadius: '16px',
+              border: '1px solid #e5e7eb',
+              background: '#ffffff',
+              position: 'relative',
+              zIndex: 1000
+            }} 
+            onClick={e => e.stopPropagation()}
+          >
+            {/* 헤더 */}
+            <div style={{ marginBottom: '12px' }}>
+              <h3 style={{ marginBottom: '4px', fontSize: '16px', fontWeight: 600 }}>등록되지 않은 학생 추가</h3>
+              <p className="muted" style={{ fontSize: '12px', marginBottom: '8px' }}>
+                다음 학생이 학생 목록에 없습니다: <strong style={{ color: '#b91c1c' }}>{unmatchedStudents.map(s => s.originalName).join(', ')}</strong>
                 {unmatchedStudents.length > 1 && (
-                  <span style={{ color: '#6b7280' }}>
-                    {' '}({unmatchedStudents.length}명 남음)
-                  </span>
+                  <span style={{ color: '#6b7280' }}> ({unmatchedStudents.length}명)</span>
                 )}
               </p>
             </div>
 
             <form onSubmit={(e) => { e.preventDefault(); handleAddStudentFromModal(); }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* 1행: 이름 + 별명 + 생년월일 + 단체명 (같은 라인) */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 16,
+                  alignItems: 'center',
+                  marginBottom: 8,
+                }}
+              >
                 {/* 학생 이름 */}
-                <div>
-                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
-                    학생 이름 <span style={{ color: '#ef4444' }}>*</span>
-                  </label>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: '#6b7280',
+                      minWidth: 64,
+                      flexShrink: 0,
+                    }}
+                  >
+                    학생 이름
+                  </span>
                   <input
                     className="app-input"
                     type="text"
@@ -1874,71 +1942,167 @@ export default function UploadPage() {
                     value={newStudentName}
                     onChange={e => setNewStudentName(e.target.value)}
                     required
-                    style={{ width: '100%' }}
+                    style={{
+                      width: 140,
+                      background: '#fffaf1',
+                      border: '1px solid rgba(221, 201, 166, 0.5)',
+                    }}
                   />
                 </div>
 
                 {/* 별명 */}
-                <div>
-                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: '#6b7280',
+                      minWidth: 48,
+                      flexShrink: 0,
+                    }}
+                  >
                     별명
-                  </label>
+                  </span>
                   <input
                     className="app-input"
                     type="text"
                     placeholder="예: 철수"
                     value={newStudentNickname}
                     onChange={e => setNewStudentNickname(e.target.value)}
-                    style={{ width: '100%' }}
+                    style={{
+                      width: 120,
+                      background: '#fffaf1',
+                      border: '1px solid rgba(221, 201, 166, 0.5)',
+                    }}
                   />
                 </div>
 
                 {/* 생년월일 */}
-                <div>
-                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: '#6b7280',
+                      minWidth: 60,
+                      flexShrink: 0,
+                    }}
+                  >
                     생년월일
-                  </label>
+                  </span>
                   <input
                     className="app-input"
                     type="date"
                     value={newStudentBirthDate}
                     onChange={e => setNewStudentBirthDate(e.target.value)}
-                    style={{ width: '100%' }}
+                    style={{
+                      width: 140,
+                      background: '#fffaf1',
+                      border: '1px solid rgba(221, 201, 166, 0.5)',
+                    }}
                   />
                 </div>
 
                 {/* 단체명 */}
-                <div>
-                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      color: '#6b7280',
+                      minWidth: 60,
+                      flexShrink: 0,
+                    }}
+                  >
                     단체명
-                  </label>
-                  <input
-                    className="app-input"
-                    type="text"
-                    placeholder="예: 초등부"
-                    value={newStudentGroupName}
-                    onChange={e => setNewStudentGroupName(e.target.value)}
-                    style={{ width: '100%' }}
-                  />
-                </div>
-
-                {/* 메모 */}
-                <div>
-                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
-                    메모
-                  </label>
-                  <textarea
-                    className="app-input"
-                    placeholder="추가 정보를 입력하세요"
-                    value={newStudentLogContent}
-                    onChange={e => setNewStudentLogContent(e.target.value)}
-                    rows={3}
-                    style={{ width: '100%', resize: 'vertical' }}
-                  />
+                  </span>
+                  <div style={{ position: 'relative', width: 140 }}>
+                    <select
+                      className="app-input"
+                      value={newStudentGroupName}
+                      onChange={e => setNewStudentGroupName(e.target.value)}
+                      style={{
+                        width: '100%',
+                        background: '#fffaf1',
+                        border: '1px solid rgba(221, 201, 166, 0.5)',
+                        borderRadius: 10,
+                        padding: '8px 12px',
+                        fontSize: 13,
+                        color: 'var(--text-dark)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="">선택하세요</option>
+                      <option value="초등부">초등부</option>
+                      <option value="중등부">중등부</option>
+                      <option value="고등부">고등부</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: '8px', marginTop: '24px', justifyContent: 'flex-end' }}>
+              {/* 2행: 메모 (넓은 textarea) */}
+              <div style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: '#6b7280',
+                    marginBottom: 4,
+                  }}
+                >
+                  메모(별명/특이사항)
+                </div>
+                <textarea
+                  className="app-textarea"
+                  placeholder="예: 좋아하는 활동, 특이사항 등을 적어주세요."
+                  value={newStudentLogContent}
+                  onChange={e => setNewStudentLogContent(e.target.value)}
+                  rows={4}
+                  style={{
+                    width: '98%',
+                    minWidth: 200,
+                    fontSize: 13,
+                    background: '#fffaf1',
+                    border: '1px solid rgba(221, 201, 166, 0.5)',
+                    borderRadius: 10,
+                    padding: '8px 12px',
+                    transition: 'all 0.2s',
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = 'var(--accent-green)'
+                    e.target.style.background = '#fffdf8'
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = 'rgba(221, 201, 166, 0.5)'
+                    e.target.style.background = '#fffaf1'
+                  }}
+                />
+              </div>
+
+              {/* 하단: 버튼 */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: 8,
+                  marginTop: 12,
+                }}
+              >
                 <button
                   type="button"
                   className="btn secondary"
@@ -1952,6 +2116,10 @@ export default function UploadPage() {
                     setUnmatchedStudents([])
                   }}
                   disabled={addingStudent}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                  }}
                 >
                   취소
                 </button>
@@ -1959,6 +2127,10 @@ export default function UploadPage() {
                   type="submit"
                   className="btn"
                   disabled={addingStudent || !newStudentName.trim()}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                  }}
                 >
                   {addingStudent ? '추가 중...' : '학생 추가'}
                 </button>
