@@ -2272,12 +2272,14 @@ app.get(['/uploads/:id', '/api/uploads/:id'], async (req, res) => {
         .json({ message: '업로드를 찾을 수 없습니다.' });
     }
 
+    // source_file_path 조회: 새로운 형식({upload_id}::{file_name})과 기존 형식(file_name) 모두 처리
+    const newFormatPath = `${upload.id}::${upload.file_name}`;
     const { data: logs, error: logsErr } = await supabase
       .from('log_entries')
       .select(
         'id, log_date, student_id, emotion_tag, activity_tags, log_content, related_metrics, source_file_path, student:students(name,alias)',
       )
-      .eq('source_file_path', upload.file_name)
+      .or(`source_file_path.eq.${newFormatPath},source_file_path.eq.${upload.file_name}`)
       .order('log_date', { ascending: true });
 
     if (logsErr) {
@@ -2663,6 +2665,22 @@ app.post(['/uploads/:id/log', '/api/uploads/:id/log'], async (req, res) => {
       }
     }
 
+    // 3) ingest_uploads에서 file_name 가져오기 (upload_id로 정확한 파일 식별)
+    const uploadId = id || upload_id;
+    let actualFileName = file_name || null;
+    
+    if (uploadId && !actualFileName) {
+      const { data: uploadData, error: uploadErr } = await supabase
+        .from('ingest_uploads')
+        .select('file_name')
+        .eq('id', uploadId)
+        .single();
+
+      if (!uploadErr && uploadData && uploadData.file_name) {
+        actualFileName = uploadData.file_name;
+      }
+    }
+
     // 3) log_entries 테이블에 들어갈 row 배열 생성
     const logRows = [];
 
@@ -2704,6 +2722,12 @@ app.post(['/uploads/:id/log', '/api/uploads/:id/log'], async (req, res) => {
         metricsArray = [rawMetrics];
       }
 
+      // source_file_path에 upload_id 포함하여 정확한 파일 식별
+      // 형식: "{upload_id}::{file_name}" (기존 데이터와 구분하기 위해 :: 구분자 사용)
+      const sourceFilePath = uploadId && actualFileName 
+        ? `${uploadId}::${actualFileName}` 
+        : (actualFileName || entry.source_file_path || null);
+
       logRows.push({
         // 🔹 log_entries 테이블 스키마에 존재하는 컬럼만 전달
         log_date: logDate, // date NOT NULL
@@ -2712,7 +2736,7 @@ app.post(['/uploads/:id/log', '/api/uploads/:id/log'], async (req, res) => {
         activity_tags: activityTags.length > 0 ? activityTags : null, // ARRAY
         log_content: entry.log_content || raw_text || '', // text
         related_metrics: metricsArray && metricsArray.length > 0 ? metricsArray : null, // ARRAY
-        source_file_path: file_name || entry.source_file_path || null, // text
+        source_file_path: sourceFilePath, // text (upload_id 포함)
         status: 'success', // text, 기본값과 동일
       });
     }
@@ -2723,16 +2747,32 @@ app.post(['/uploads/:id/log', '/api/uploads/:id/log'], async (req, res) => {
         .json({ message: '저장할 log_entries 가 없습니다.' });
     }
 
-    // 4) 동일 source_file_path 기존 기록 삭제 (같은 파일로 다시 저장하는 경우)
-    const sourceFilePath = file_name || logRows[0].source_file_path || '';
-    if (sourceFilePath) {
-      const { error: delErr } = await supabase
+    // 4) 해당 upload_id의 기존 기록만 삭제 (upload_id로 특정 파일만 식별)
+    // source_file_path에 upload_id가 포함된 경우와 기존 형식 모두 처리
+    if (uploadId && actualFileName) {
+      // 새로운 형식: "{upload_id}::{file_name}"로 시작하는 항목 삭제
+      const newFormatPath = `${uploadId}::${actualFileName}`;
+      const { error: delErr1 } = await supabase
         .from('log_entries')
         .delete()
-        .eq('source_file_path', sourceFilePath);
+        .eq('source_file_path', newFormatPath);
 
-      if (delErr) {
-        console.error('[SAVE LOG] 기존 log_entries 삭제 에러:', delErr);
+      if (delErr1) {
+        console.error('[SAVE LOG] 기존 log_entries 삭제 에러 (새 형식):', delErr1);
+      }
+
+      // 기존 형식 (하위 호환성): file_name만으로 저장된 경우도 삭제
+      // 단, upload_id가 포함된 형식이 아닌 경우에만 (기존 데이터 보호)
+      const { error: delErr2 } = await supabase
+        .from('log_entries')
+        .delete()
+        .eq('source_file_path', actualFileName)
+        .not('source_file_path', 'like', '%::%'); // :: 구분자가 없는 경우만 (기존 형식)
+
+      if (delErr2) {
+        console.error('[SAVE LOG] 기존 log_entries 삭제 에러 (기존 형식):', delErr2);
+      } else {
+        console.log(`[SAVE LOG] upload_id ${uploadId}의 기존 log_entries 삭제 완료 (file_name: ${actualFileName})`);
       }
     }
 
