@@ -1375,7 +1375,8 @@ export default function UploadPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           upload_id: detail.upload.id, 
-          file_name: detail.upload.file_name, 
+          // file_name 제거: upload_id만으로 특정 파일을 식별하도록 변경
+          // 백엔드에서 file_name을 기준으로 다른 파일을 삭제하는 것을 방지
           raw_text: detail.editedText, 
           log_entries: matchedEntries 
         })
@@ -1383,8 +1384,7 @@ export default function UploadPage() {
       setDetail(p=>({...p, saving: false, saved: true}))
       alert('저장 완료')
       fetchUploads()
-      fetchSavedFiles() // 저장된 파일 목록 갱신
-      fetchSavedFiles() // 저장된 파일 목록 갱신
+      fetchSavedFiles() // 저장된 파일 목록 갱신 (중복 제거)
     } catch(e) { 
       console.error('[저장] 에러:', e)
       setDetail(p=>({...p, saving: false}))

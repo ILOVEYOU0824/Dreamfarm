@@ -33,6 +33,9 @@ export default function Dashboard() {
   const [filteredStudents, setFilteredStudents] = useState([]) // 필터링된 학생 ID 배열
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  // 날짜 입력 필드의 임시 값 (월 변경 시 로딩 방지)
+  const [tempStartDate, setTempStartDate] = useState('')
+  const [tempEndDate, setTempEndDate] = useState('')
   const [metrics, setMetrics] = useState({ recordCount: 0 })
   const [studentRecordCounts, setStudentRecordCounts] = useState({}) // 각 학생별 기록수 { studentId: count }
   const [activitySeries, setActivitySeries] = useState([])
@@ -990,8 +993,29 @@ export default function Dashboard() {
                 <input
                   type="date"
                   className="student-filter-input student-filter-date-input"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  value={tempStartDate || startDate}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    // 유효한 날짜 형식인지 확인 (YYYY-MM-DD)
+                    const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(value)
+                    
+                    if (isValidDate && value !== startDate) {
+                      // 유효한 날짜가 완전히 선택되었을 때만 실제 상태 업데이트
+                      setStartDate(value)
+                      setTempStartDate('')
+                    } else {
+                      // 아직 날짜 선택 중이면 임시 상태만 업데이트 (로딩 방지)
+                      setTempStartDate(value)
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // 포커스를 잃었을 때 임시 상태 정리
+                    const value = e.target.value
+                    if (value && /^\d{4}-\d{2}-\d{2}$/.test(value) && value !== startDate) {
+                      setStartDate(value)
+                    }
+                    setTempStartDate('')
+                  }}
                 />
               </div>
 
@@ -1000,8 +1024,29 @@ export default function Dashboard() {
                 <input
                   type="date"
                   className="student-filter-input student-filter-date-input"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
+                  value={tempEndDate || endDate}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    // 유효한 날짜 형식인지 확인 (YYYY-MM-DD)
+                    const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(value)
+                    
+                    if (isValidDate && value !== endDate) {
+                      // 유효한 날짜가 완전히 선택되었을 때만 실제 상태 업데이트
+                      setEndDate(value)
+                      setTempEndDate('')
+                    } else {
+                      // 아직 날짜 선택 중이면 임시 상태만 업데이트 (로딩 방지)
+                      setTempEndDate(value)
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // 포커스를 잃었을 때 임시 상태 정리
+                    const value = e.target.value
+                    if (value && /^\d{4}-\d{2}-\d{2}$/.test(value) && value !== endDate) {
+                      setEndDate(value)
+                    }
+                    setTempEndDate('')
+                  }}
                 />
               </div>
 
