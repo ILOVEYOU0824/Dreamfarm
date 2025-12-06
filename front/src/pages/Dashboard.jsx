@@ -41,7 +41,8 @@ export default function Dashboard() {
   const [activitySeries, setActivitySeries] = useState([])
   const [activityAbilityList, setActivityAbilityList] = useState([])
   const [loading, setLoading] = useState(false)
-  const [initialLoading, setInitialLoading] = useState(true) // 초기 로딩 상태
+  const [initialLoading, setInitialLoading] = useState(true) // 초기 로딩 상태 (페이지 첫 진입 시에만 사용)
+  const [isDataLoading, setIsDataLoading] = useState(false) // 데이터 로딩 상태 (학생 선택, 날짜 변경 시 사용)
   const [user, setUser] = useState({ name: '선생님' })
   const [activityAbilityAnalysis, setActivityAbilityAnalysis] = useState([]) // 활동별 능력 분석 데이터
   const [activityDetails, setActivityDetails] = useState([]) // 활동 상세 내역 데이터
@@ -607,7 +608,13 @@ export default function Dashboard() {
       }
       
       try {
-        setInitialLoading(true)
+        // 초기 로드가 완료된 후에는 로딩 화면을 표시하지 않음 (데이터만 업데이트)
+        // initialLoading이 false가 된 후에는 다시 true로 설정하지 않음
+        if (!initialLoading) {
+          // 초기 로드 완료 후에는 로딩 화면 없이 데이터만 업데이트
+          setIsDataLoading(true)
+        }
+        // initialLoading이 true인 경우는 초기 로드 중이므로 그대로 유지
         console.log('[대시보드] 학생별 데이터 로드 시작:', selectedStudentId)
         
         // 기간 필터 적용 (startDate, endDate가 있으면 사용)
@@ -926,7 +933,11 @@ export default function Dashboard() {
         setActivityEmotionAiComment('')
         setDatesWithRecords(new Set())
       } finally {
-        setInitialLoading(false)
+        if (initialLoading) {
+          setInitialLoading(false)
+        } else {
+          setIsDataLoading(false)
+        }
       }
     }
     
