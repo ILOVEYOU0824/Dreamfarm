@@ -1270,6 +1270,28 @@ export default function UploadPage() {
     if(!detail.upload) return
     setDetail(p=>({...p, saving: true}))
     try {
+      // studentsMaster가 비어있으면 먼저 로드 (동기적으로)
+      let currentStudentsMaster = studentsMaster
+      if (currentStudentsMaster.length === 0) {
+        try {
+          const res = await apiFetch('/api/students?limit=1000')
+          const items = Array.isArray(res.items) ? res.items : res
+          const students = Array.isArray(items) ? items.map(item => ({
+            id: String(item.id ?? item.student_id ?? item.uuid),
+            name: item.name ?? item.display_name ?? item.student_name ?? '이름 없음',
+            nickname: item.nickname || item.alias || '',
+            group_name: item.group_name || ''
+          })).filter(item => item.id) : []
+          setStudentsMaster(students)
+          currentStudentsMaster = students // 로드한 학생 목록 사용
+        } catch (e) {
+          console.error('학생 목록 로드 실패:', e)
+          alert('학생 목록을 불러오는 중 오류가 발생했습니다. 다시 시도해주세요.')
+          setDetail(p=>({...p, saving: false}))
+          return
+        }
+      }
+      
       // 학생 이름 매칭 및 검증
       const unmatchedStudents = []
       const matchedEntries = []
@@ -1284,17 +1306,26 @@ export default function UploadPage() {
         let matchedStudent = null
         let finalStudentName = stu.name
         
-        // student_id가 UUID 형식이 아니면 이름으로 매칭 시도
+        // student_id가 UUID 형식인지 확인
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
         const hasValidId = stu.id && uuidRegex.test(String(stu.id))
         
-        if (!hasValidId || !studentsMaster.find(s => String(s.id) === String(stu.id))) {
-          // UUID가 아니거나 studentsMaster에 없으면 이름으로 매칭
-          matchedStudent = findMatchingStudent(stu.name, studentsMaster)
+        // UUID 형식이고 studentsMaster에 존재하는지 확인
+        if (hasValidId) {
+          matchedStudent = currentStudentsMaster.find(s => String(s.id) === String(stu.id))
+          if (matchedStudent) {
+            finalStudentName = matchedStudent.name
+          }
+        }
+        
+        // UUID가 아니거나 studentsMaster에 없으면 이름으로 매칭 시도
+        if (!matchedStudent) {
+          matchedStudent = findMatchingStudent(stu.name, currentStudentsMaster)
           if (matchedStudent) {
             finalStudentName = matchedStudent.name
           } else {
-            // 매칭되지 않는 학생
+            // 매칭되지 않는 학생 - 학생 추가 필요
+            console.log('[저장] 등록되지 않은 학생 발견:', stu.name, 'ID:', stu.id)
             unmatchedStudents.push({
               originalName: stu.name,
               originalId: stu.id
@@ -1362,12 +1393,14 @@ export default function UploadPage() {
       
       // 매칭되지 않은 학생이 있으면 학생 추가 모달 표시
       if (unmatchedStudents.length > 0) {
+        console.log('[저장] 등록되지 않은 학생 발견:', unmatchedStudents.map(s => s.originalName).join(', '))
+        console.log('[저장] 학생 추가 모달 표시 - 저장 중단')
         setUnmatchedStudents(unmatchedStudents)
         // 첫 번째 등록되지 않은 학생의 이름을 기본값으로 설정
         setNewStudentName(unmatchedStudents[0].originalName)
         setAddStudentModalOpen(true)
         setDetail(p=>({...p, saving: false}))
-        return
+        return // 저장 중단 - 학생 추가 후 재시도
       }
       
       if (matchedEntries.length === 0) {
