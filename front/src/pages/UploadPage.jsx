@@ -1237,9 +1237,18 @@ export default function UploadPage() {
 
   // 학생 이름 매칭 함수 (부분 매칭 지원)
   function findMatchingStudent(studentName, studentsList) {
-    if (!studentName) return null
+    if (!studentName) {
+      console.log('[매칭] 학생 이름이 없음')
+      return null
+    }
+    
+    if (!studentsList || studentsList.length === 0) {
+      console.log('[매칭] studentsList가 비어있음')
+      return null
+    }
     
     const nameTrimmed = studentName.trim()
+    console.log('[매칭] 검색 대상:', nameTrimmed, 'studentsList 개수:', studentsList.length)
     
     // 1. 정확히 일치하는 경우
     let match = studentsList.find(s => 
@@ -1251,7 +1260,10 @@ export default function UploadPage() {
       `${s.name}을` === nameTrimmed ||
       `${s.name}를` === nameTrimmed
     )
-    if (match) return match
+    if (match) {
+      console.log('[매칭] 정확히 일치하는 학생 발견:', match.name)
+      return match
+    }
     
     // 2. 이름이 포함된 경우 (예: "재성"이 "재성이"에 포함)
     match = studentsList.find(s => {
@@ -1260,8 +1272,12 @@ export default function UploadPage() {
       return nameTrimmed.includes(sName) || sName.includes(nameTrimmed) ||
              nameTrimmed.includes(sNickname) || sNickname.includes(nameTrimmed)
     })
-    if (match) return match
+    if (match) {
+      console.log('[매칭] 부분 일치하는 학생 발견:', match.name)
+      return match
+    }
     
+    console.log('[매칭] 매칭 실패:', nameTrimmed)
     return null
   }
 
@@ -1297,7 +1313,12 @@ export default function UploadPage() {
       const matchedEntries = []
       
       // analysisByStudent에서 각 학생별 데이터 추출
+      console.log('[저장] 검증 시작 - detail.students:', detail.students)
+      console.log('[저장] studentsMaster 개수:', currentStudentsMaster.length)
+      console.log('[저장] studentsMaster 목록:', currentStudentsMaster.map(s => s.name))
+      
       detail.students.forEach(stu => {
+        console.log('[저장] 학생 검증 중:', stu.name, 'ID:', stu.id)
         const studentAnalysis = detail.analysisByStudent[stu.id] || {}
         const analysis = studentAnalysis.analysis || {}
         const activityTypes = studentAnalysis.activityTypes || {}
@@ -1309,20 +1330,24 @@ export default function UploadPage() {
         // student_id가 UUID 형식인지 확인
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
         const hasValidId = stu.id && uuidRegex.test(String(stu.id))
+        console.log('[저장] 학생 ID 검증:', stu.name, 'hasValidId:', hasValidId, 'ID:', stu.id)
         
         // UUID 형식이고 studentsMaster에 존재하는지 확인
         if (hasValidId) {
           matchedStudent = currentStudentsMaster.find(s => String(s.id) === String(stu.id))
           if (matchedStudent) {
             finalStudentName = matchedStudent.name
+            console.log('[저장] UUID로 매칭 성공:', stu.name, '->', matchedStudent.name)
           }
         }
         
         // UUID가 아니거나 studentsMaster에 없으면 이름으로 매칭 시도
         if (!matchedStudent) {
+          console.log('[저장] 이름으로 매칭 시도:', stu.name)
           matchedStudent = findMatchingStudent(stu.name, currentStudentsMaster)
           if (matchedStudent) {
             finalStudentName = matchedStudent.name
+            console.log('[저장] 이름으로 매칭 성공:', stu.name, '->', matchedStudent.name)
           } else {
             // 매칭되지 않는 학생 - 학생 추가 필요
             console.log('[저장] 등록되지 않은 학생 발견:', stu.name, 'ID:', stu.id)
