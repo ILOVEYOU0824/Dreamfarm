@@ -11,6 +11,8 @@ import observeIcon from '../assets/observe_icon.png'
 import etcIcon from '../assets/etc_icon.png'
 import sproutIcon from '../assets/sprout_icon.png'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts'
+import DatePicker from 'react-datepicker'
+import 'react-datepicker/dist/react-datepicker.css'
 
 export default function Dashboard() {
   // -----------------------------
@@ -33,9 +35,6 @@ export default function Dashboard() {
   const [filteredStudents, setFilteredStudents] = useState([]) // 필터링된 학생 ID 배열
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  // 날짜 입력 필드의 임시 값 (월 변경 시 로딩 방지)
-  const [tempStartDate, setTempStartDate] = useState('')
-  const [tempEndDate, setTempEndDate] = useState('')
   const [metrics, setMetrics] = useState({ recordCount: 0 })
   const [studentRecordCounts, setStudentRecordCounts] = useState({}) // 각 학생별 기록수 { studentId: count }
   const [activitySeries, setActivitySeries] = useState([])
@@ -49,6 +48,13 @@ export default function Dashboard() {
   const [selectedEmotionKeywords, setSelectedEmotionKeywords] = useState([]) // 개별분석에 표시할 선택한 감정 키워드
   const [activityEmotionAiComment, setActivityEmotionAiComment] = useState('') // 활동별 감정 분석 AI 코멘트
   const [datesWithRecords, setDatesWithRecords] = useState(new Set()) // 기록이 있는 날짜 목록 (YYYY-MM-DD 형식)
+  // 기록이 있는 날짜를 Date 객체 배열로 변환 (react-datepicker용)
+  const datesWithRecordsArray = useMemo(() => {
+    return Array.from(datesWithRecords).map(dateStr => {
+      const [year, month, day] = dateStr.split('-').map(Number)
+      return new Date(year, month - 1, day)
+    })
+  }, [datesWithRecords])
 
   // 학생 데이터 불러오기 함수 (재사용 가능하도록 분리)
   const loadStudents = useCallback(async () => {
@@ -96,29 +102,10 @@ export default function Dashboard() {
     }
   }, [])
 
-  // 날짜 입력 필드에 기록이 있는 날짜 표시
-  // HTML5 date input의 캘린더는 브라우저 기본 UI이므로 직접 스타일링이 어렵습니다
-  // JavaScript로 날짜 입력 필드가 열릴 때 기록이 있는 날짜에 스타일을 적용합니다
-  useEffect(() => {
-    const dateInputs = document.querySelectorAll('input[type="date"].student-filter-date-input')
-    
-    dateInputs.forEach(input => {
-      const datesWithRecordsAttr = input.getAttribute('data-dates-with-records')
-      if (!datesWithRecordsAttr) return
-      
-      const datesArray = datesWithRecordsAttr.split(',').filter(Boolean)
-      if (datesArray.length === 0) return
-      
-      // 날짜 입력 필드가 포커스될 때 기록이 있는 날짜에 스타일 적용 시도
-      // Chrome/Edge의 경우 Shadow DOM을 통해 캘린더에 접근할 수 있지만
-      // 브라우저마다 다르게 동작하므로 완벽하지 않습니다
-      // 대신 날짜 입력 필드 옆에 빨간 점을 표시하는 방법을 사용합니다 (CSS에서 처리)
-      
-      // 추가: 날짜 입력 필드가 열릴 때 기록이 있는 날짜 목록을 콘솔에 출력 (디버깅용)
-      input.addEventListener('focus', () => {
-        console.log('[대시보드] 기록이 있는 날짜:', datesArray)
-      })
-    })
+  // react-datepicker에서 특정 날짜에 클래스를 추가하는 함수
+  const dayClassName = useCallback((date) => {
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+    return datesWithRecords.has(dateStr) ? 'has-record' : ''
   }, [datesWithRecords])
   
   // 학생 데이터 불러오기 (초기 로드)
@@ -1059,76 +1046,50 @@ export default function Dashboard() {
             <div className="student-filter-row">
               <div className="student-filter-field">
                 <span className="student-filter-label">시작일</span>
-                <div 
-                  className="date-input-wrapper"
-                  data-has-records={datesWithRecords.size > 0 ? 'true' : 'false'}
-                  title={datesWithRecords.size > 0 ? `기록이 있는 날짜: ${Array.from(datesWithRecords).slice(0, 5).join(', ')}${datesWithRecords.size > 5 ? '...' : ''}` : ''}
-                >
-                  <input
-                    type="date"
-                    className="student-filter-input student-filter-date-input"
-                    value={tempStartDate || startDate}
-                    data-dates-with-records={Array.from(datesWithRecords).join(',')}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      // 유효한 날짜 형식인지 확인 (YYYY-MM-DD)
-                      const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(value)
-                      
-                      if (isValidDate && value !== startDate) {
-                        // 유효한 날짜가 완전히 선택되었을 때만 실제 상태 업데이트
-                        setStartDate(value)
-                        setTempStartDate('')
+                <div className="date-input-wrapper">
+                  <DatePicker
+                    selected={startDate ? new Date(startDate + 'T00:00:00') : null}
+                    onChange={(date) => {
+                      if (date) {
+                        const dateStr = date.toISOString().split('T')[0]
+                        if (dateStr !== startDate) {
+                          setStartDate(dateStr)
+                        }
                       } else {
-                        // 아직 날짜 선택 중이면 임시 상태만 업데이트 (로딩 방지)
-                        setTempStartDate(value)
+                        setStartDate('')
                       }
                     }}
-                    onBlur={(e) => {
-                      // 포커스를 잃었을 때 임시 상태 정리
-                      const value = e.target.value
-                      if (value && /^\d{4}-\d{2}-\d{2}$/.test(value) && value !== startDate) {
-                        setStartDate(value)
-                      }
-                      setTempStartDate('')
-                    }}
+                    dateFormat="yyyy-MM-dd"
+                    className="student-filter-input student-filter-date-input"
+                    dayClassName={dayClassName}
+                    highlightDates={datesWithRecordsArray}
+                    placeholderText="날짜 선택"
+                    isClearable
                   />
                 </div>
               </div>
 
               <div className="student-filter-field">
                 <span className="student-filter-label">종료일</span>
-                <div 
-                  className="date-input-wrapper"
-                  data-has-records={datesWithRecords.size > 0 ? 'true' : 'false'}
-                  title={datesWithRecords.size > 0 ? `기록이 있는 날짜: ${Array.from(datesWithRecords).slice(0, 5).join(', ')}${datesWithRecords.size > 5 ? '...' : ''}` : ''}
-                >
-                  <input
-                    type="date"
-                    className="student-filter-input student-filter-date-input"
-                    value={tempEndDate || endDate}
-                    data-dates-with-records={Array.from(datesWithRecords).join(',')}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      // 유효한 날짜 형식인지 확인 (YYYY-MM-DD)
-                      const isValidDate = /^\d{4}-\d{2}-\d{2}$/.test(value)
-                      
-                      if (isValidDate && value !== endDate) {
-                        // 유효한 날짜가 완전히 선택되었을 때만 실제 상태 업데이트
-                        setEndDate(value)
-                        setTempEndDate('')
+                <div className="date-input-wrapper">
+                  <DatePicker
+                    selected={endDate ? new Date(endDate + 'T00:00:00') : null}
+                    onChange={(date) => {
+                      if (date) {
+                        const dateStr = date.toISOString().split('T')[0]
+                        if (dateStr !== endDate) {
+                          setEndDate(dateStr)
+                        }
                       } else {
-                        // 아직 날짜 선택 중이면 임시 상태만 업데이트 (로딩 방지)
-                        setTempEndDate(value)
+                        setEndDate('')
                       }
                     }}
-                    onBlur={(e) => {
-                      // 포커스를 잃었을 때 임시 상태 정리
-                      const value = e.target.value
-                      if (value && /^\d{4}-\d{2}-\d{2}$/.test(value) && value !== endDate) {
-                        setEndDate(value)
-                      }
-                      setTempEndDate('')
-                    }}
+                    dateFormat="yyyy-MM-dd"
+                    className="student-filter-input student-filter-date-input"
+                    dayClassName={dayClassName}
+                    highlightDates={datesWithRecordsArray}
+                    placeholderText="날짜 선택"
+                    isClearable
                   />
                 </div>
               </div>
@@ -1813,3 +1774,5 @@ export default function Dashboard() {
     </Layout>
   )
 }
+
+

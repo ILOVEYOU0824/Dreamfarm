@@ -142,20 +142,42 @@
   display: inline-block;
 }
 
-/* 기록이 있는 날짜에 빨간 점 표시를 위한 스타일 */
-/* HTML5 date input의 캘린더는 브라우저 기본 UI이므로 직접 스타일링이 어렵습니다 */
-/* 대신 날짜 입력 필드 옆에 빨간 점을 표시하여 기록이 있음을 알립니다 */
-.date-input-wrapper[data-has-records="true"]::after {
+/* react-datepicker 스타일 커스터마이징 */
+.react-datepicker__input-container input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+}
+
+.react-datepicker__input-container input:focus {
+  outline: none;
+  border-color: #98B285;
+  box-shadow: 0 0 0 3px rgba(152, 178, 133, 0.1);
+}
+
+/* 기록이 있는 날짜에 빨간 점 표시 */
+.react-datepicker__day.has-record {
+  position: relative;
+}
+
+.react-datepicker__day.has-record::after {
   content: '●';
   position: absolute;
-  right: 32px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 8px;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 6px;
   color: #ef4444;
-  pointer-events: none;
-  z-index: 1;
   line-height: 1;
+  pointer-events: none;
+}
+
+/* react-datepicker 캘린더 위치 조정 */
+.react-datepicker-popper {
+  z-index: 1000;
 }
 
 .student-filter-input:focus {
