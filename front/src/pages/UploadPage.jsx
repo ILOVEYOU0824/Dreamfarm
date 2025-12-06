@@ -248,6 +248,16 @@ export default function UploadPage() {
   const [aiError, setAiError] = useState('')
   const [savedFiles, setSavedFiles] = useState([]) // 저장된 파일 목록
   const [savedFilesLoading, setSavedFilesLoading] = useState(false)
+  
+  // 학생 추가 모달 State
+  const [addStudentModalOpen, setAddStudentModalOpen] = useState(false)
+  const [unmatchedStudents, setUnmatchedStudents] = useState([]) // 등록되지 않은 학생 목록
+  const [newStudentName, setNewStudentName] = useState('')
+  const [newStudentNickname, setNewStudentNickname] = useState('')
+  const [newStudentBirthDate, setNewStudentBirthDate] = useState('')
+  const [newStudentGroupName, setNewStudentGroupName] = useState('')
+  const [newStudentLogContent, setNewStudentLogContent] = useState('')
+  const [addingStudent, setAddingStudent] = useState(false)
 
   // -------------------- 로직 (API 호출 등) --------------------
   
@@ -1350,14 +1360,12 @@ export default function UploadPage() {
         })
       })
       
-      // 매칭되지 않은 학생이 있으면 오류 표시 및 수정 요청
+      // 매칭되지 않은 학생이 있으면 학생 추가 모달 표시
       if (unmatchedStudents.length > 0) {
-        const unmatchedNames = unmatchedStudents.map(s => s.originalName).join(', ')
-        const message = 
-          `다음 학생 이름이 학생 목록에 없습니다:\n${unmatchedNames}\n\n` +
-          `학생 이름을 수정하거나 학생 목록에 추가해주세요.\n\n` +
-          `학생 탭에서 이름을 클릭하여 수정할 수 있습니다.`
-        alert(message)
+        setUnmatchedStudents(unmatchedStudents)
+        // 첫 번째 등록되지 않은 학생의 이름을 기본값으로 설정
+        setNewStudentName(unmatchedStudents[0].originalName)
+        setAddStudentModalOpen(true)
         setDetail(p=>({...p, saving: false}))
         return
       }
@@ -1389,6 +1397,75 @@ export default function UploadPage() {
       console.error('[저장] 에러:', e)
       setDetail(p=>({...p, saving: false}))
       alert(`저장 실패: ${e.message || '알 수 없는 오류'}`)
+    }
+  }
+
+  // 학생 추가 함수 (모달에서 호출)
+  async function handleAddStudentFromModal() {
+    if (!newStudentName.trim()) {
+      alert('학생 이름을 입력해주세요.')
+      return
+    }
+
+    try {
+      setAddingStudent(true)
+      
+      // 백엔드 API에 학생 추가
+      const response = await apiFetch('/api/students', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newStudentName.trim(),
+          alias: newStudentNickname.trim() || null,
+          birth_date: newStudentBirthDate || null,
+          group_name: newStudentGroupName.trim() || null,
+          memo: newStudentLogContent.trim() || null,
+          log_content: newStudentLogContent.trim() || null,
+        }),
+      })
+      
+      const newStudent = {
+        id: String(response.id || response.student_id),
+        name: response.name || newStudentName.trim(),
+        nickname: response.alias || newStudentNickname.trim() || '',
+        group_name: response.group_name || newStudentGroupName.trim() || ''
+      }
+      
+      // studentsMaster에 추가
+      setStudentsMaster(prev => [...prev, newStudent])
+      
+      // 등록되지 않은 학생 목록에서 제거
+      const remainingUnmatched = unmatchedStudents.filter(s => s.originalName !== newStudentName.trim())
+      setUnmatchedStudents(remainingUnmatched)
+      
+      // 입력 필드 초기화
+      setNewStudentNickname('')
+      setNewStudentBirthDate('')
+      setNewStudentGroupName('')
+      setNewStudentLogContent('')
+      
+      // 모든 등록되지 않은 학생이 추가되었으면 저장 재시도
+      if (remainingUnmatched.length === 0) {
+        // 모달 닫기
+        setAddStudentModalOpen(false)
+        setNewStudentName('')
+        // 저장 재시도
+        setTimeout(() => {
+          handleSaveLogEntry()
+        }, 100)
+        alert('모든 학생이 추가되었습니다. 저장을 진행합니다.')
+      } else {
+        // 아직 등록되지 않은 학생이 있으면 다음 학생 이름으로 설정하고 모달 유지
+        setNewStudentName(remainingUnmatched[0].originalName)
+        alert(`학생이 추가되었습니다. 남은 학생: ${remainingUnmatched.map(s => s.originalName).join(', ')}`)
+      }
+    } catch (e) {
+      console.error('학생 추가 실패:', e)
+      alert(`학생 추가 실패: ${e.message || '알 수 없는 오류'}`)
+    } finally {
+      setAddingStudent(false)
     }
   }
 
@@ -1753,6 +1830,143 @@ export default function UploadPage() {
           studentName={detail.upload?.student_name}
         />
       </div>
+      {/* 학생 추가 모달 */}
+      {addStudentModalOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setAddStudentModalOpen(false)}>
+          <div className="modal-card" style={{ maxWidth: '600px', width: '90%' }} onClick={e => e.stopPropagation()}>
+            <div style={{ marginBottom: '20px' }}>
+              <h3 style={{ marginBottom: '8px' }}>등록되지 않은 학생 추가</h3>
+              <p className="muted" style={{ fontSize: '13px', marginBottom: '8px' }}>
+                다음 학생이 학생 목록에 없습니다:
+              </p>
+              <div style={{ 
+                padding: '8px 12px', 
+                background: '#fef2f2', 
+                borderRadius: '6px', 
+                marginBottom: '12px',
+                fontSize: '13px'
+              }}>
+                <strong style={{ color: '#b91c1c' }}>
+                  {unmatchedStudents.map(s => s.originalName).join(', ')}
+                </strong>
+              </div>
+              <p className="muted" style={{ fontSize: '13px' }}>
+                현재 추가할 학생: <strong>{unmatchedStudents[0]?.originalName || ''}</strong>
+                {unmatchedStudents.length > 1 && (
+                  <span style={{ color: '#6b7280' }}>
+                    {' '}({unmatchedStudents.length}명 남음)
+                  </span>
+                )}
+              </p>
+            </div>
+
+            <form onSubmit={(e) => { e.preventDefault(); handleAddStudentFromModal(); }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* 학생 이름 */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
+                    학생 이름 <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <input
+                    className="app-input"
+                    type="text"
+                    placeholder="예: 홍길동"
+                    value={newStudentName}
+                    onChange={e => setNewStudentName(e.target.value)}
+                    required
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* 별명 */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
+                    별명
+                  </label>
+                  <input
+                    className="app-input"
+                    type="text"
+                    placeholder="예: 철수"
+                    value={newStudentNickname}
+                    onChange={e => setNewStudentNickname(e.target.value)}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* 생년월일 */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
+                    생년월일
+                  </label>
+                  <input
+                    className="app-input"
+                    type="date"
+                    value={newStudentBirthDate}
+                    onChange={e => setNewStudentBirthDate(e.target.value)}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* 단체명 */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
+                    단체명
+                  </label>
+                  <input
+                    className="app-input"
+                    type="text"
+                    placeholder="예: 초등부"
+                    value={newStudentGroupName}
+                    onChange={e => setNewStudentGroupName(e.target.value)}
+                    style={{ width: '100%' }}
+                  />
+                </div>
+
+                {/* 메모 */}
+                <div>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', color: '#6b7280' }}>
+                    메모
+                  </label>
+                  <textarea
+                    className="app-input"
+                    placeholder="추가 정보를 입력하세요"
+                    value={newStudentLogContent}
+                    onChange={e => setNewStudentLogContent(e.target.value)}
+                    rows={3}
+                    style={{ width: '100%', resize: 'vertical' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', marginTop: '24px', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  onClick={() => {
+                    setAddStudentModalOpen(false)
+                    setNewStudentName('')
+                    setNewStudentNickname('')
+                    setNewStudentBirthDate('')
+                    setNewStudentGroupName('')
+                    setNewStudentLogContent('')
+                    setUnmatchedStudents([])
+                  }}
+                  disabled={addingStudent}
+                >
+                  취소
+                </button>
+                <button
+                  type="submit"
+                  className="btn"
+                  disabled={addingStudent || !newStudentName.trim()}
+                >
+                  {addingStudent ? '추가 중...' : '학생 추가'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </Layout>
   )
 }
