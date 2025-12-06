@@ -1235,7 +1235,7 @@ export default function UploadPage() {
     finally { setAiLoading(false) }
   }
 
-  // 학생 이름 매칭 함수 (부분 매칭 지원)
+  // 학생 이름 매칭 함수 (정확한 매칭만 허용)
   function findMatchingStudent(studentName, studentsList) {
     if (!studentName) {
       console.log('[매칭] 학생 이름이 없음')
@@ -1249,35 +1249,42 @@ export default function UploadPage() {
     
     const nameTrimmed = studentName.trim()
     console.log('[매칭] 검색 대상:', nameTrimmed, 'studentsList 개수:', studentsList.length)
+    console.log('[매칭] studentsList:', studentsList.map(s => ({ name: s.name, nickname: s.nickname })))
     
-    // 1. 정확히 일치하는 경우
-    let match = studentsList.find(s => 
-      s.name === nameTrimmed || 
-      s.nickname === nameTrimmed ||
-      `${s.name}이` === nameTrimmed ||
-      `${s.name}가` === nameTrimmed ||
-      `${s.name}는` === nameTrimmed ||
-      `${s.name}을` === nameTrimmed ||
-      `${s.name}를` === nameTrimmed
-    )
+    // 정확히 일치하는 경우만 허용 (부분 매칭 제거)
+    const match = studentsList.find(s => {
+      const sName = (s.name || '').trim()
+      const sNickname = (s.nickname || '').trim()
+      
+      // 정확히 일치하는 경우
+      if (sName === nameTrimmed || sNickname === nameTrimmed) {
+        return true
+      }
+      
+      // 조사가 붙은 경우 (예: "민재는", "민재가" 등)
+      if (nameTrimmed === `${sName}이` || nameTrimmed === `${sName}가` || 
+          nameTrimmed === `${sName}는` || nameTrimmed === `${sName}을` || 
+          nameTrimmed === `${sName}를` || nameTrimmed === `${sName}의`) {
+        return true
+      }
+      
+      // 별명에 조사가 붙은 경우
+      if (sNickname && (
+          nameTrimmed === `${sNickname}이` || nameTrimmed === `${sNickname}가` || 
+          nameTrimmed === `${sNickname}는` || nameTrimmed === `${sNickname}을` || 
+          nameTrimmed === `${sNickname}를` || nameTrimmed === `${sNickname}의`)) {
+        return true
+      }
+      
+      return false
+    })
+    
     if (match) {
       console.log('[매칭] 정확히 일치하는 학생 발견:', match.name)
       return match
     }
     
-    // 2. 이름이 포함된 경우 (예: "재성"이 "재성이"에 포함)
-    match = studentsList.find(s => {
-      const sName = s.name || ''
-      const sNickname = s.nickname || ''
-      return nameTrimmed.includes(sName) || sName.includes(nameTrimmed) ||
-             nameTrimmed.includes(sNickname) || sNickname.includes(nameTrimmed)
-    })
-    if (match) {
-      console.log('[매칭] 부분 일치하는 학생 발견:', match.name)
-      return match
-    }
-    
-    console.log('[매칭] 매칭 실패:', nameTrimmed)
+    console.log('[매칭] 매칭 실패:', nameTrimmed, '- studentsList에 정확히 일치하는 이름이 없음')
     return null
   }
 
