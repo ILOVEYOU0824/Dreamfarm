@@ -2928,7 +2928,7 @@ app.get(['/report-runs', '/api/report-runs'], async (req, res) => {
 // GET /api/dashboard?studentId=...&from=YYYY-MM-DD&to=YYYY-MM-DD
 app.get('/api/dashboard', async (req, res) => {
   try {
-    const { studentId, from, to } = req.query;
+    const { studentId, from, to, skipAiAnalysis } = req.query;
 
     if (!studentId) {
       return res
@@ -3081,9 +3081,9 @@ app.get('/api/dashboard', async (req, res) => {
 
     const emotionDetails = Object.values(emotionDetailsMap);
 
-    // 5) 활동별 능력 분석 생성 (AI 사용)
+    // 5) 활동별 능력 분석 생성 (AI 사용) - skipAiAnalysis가 true이면 건너뛰기
     let activityAbilityList = [];
-    if (activityDetails.length > 0 && genAI) {
+    if (activityDetails.length > 0 && genAI && skipAiAnalysis !== 'true') {
       try {
         // 활동별로 그룹화
         const activityMap = {};
