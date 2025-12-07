@@ -2364,11 +2364,14 @@ app.get(['/uploads', '/api/uploads'], async (req, res) => {
 // ⚠️ 이 엔드포인트는 /api/uploads/:id 보다 앞에 있어야 함 (라우트 순서 중요)
 app.get(['/uploads/saved', '/api/uploads/saved'], async (req, res) => {
   try {
-    // log_entries가 있는 uploads 조회
+    // 사용자가 명시적으로 저장한 파일만 조회 (source_file_path에 :: 구분자가 있는 경우만)
+    // 새로운 형식: {upload_id}::{file_name} - 사용자가 저장 버튼을 눌러 저장한 파일
+    // 기존 형식: file_name만 - AI가 자동으로 생성한 log_entries (제외)
     const { data: logEntries, error: logErr } = await supabase
       .from('log_entries')
       .select('source_file_path, created_at, student_id, students(id, name)')
       .not('source_file_path', 'is', null)
+      .like('source_file_path', '%::%') // :: 구분자가 있는 경우만 (사용자가 저장한 파일)
       .order('created_at', { ascending: false });
 
     if (logErr) {
@@ -2402,19 +2405,48 @@ app.get(['/uploads/saved', '/api/uploads/saved'], async (req, res) => {
     // uploads 테이블에서 상세 정보 가져오기
     const savedFiles = [];
     for (const [filePath, fileInfo] of fileMap.entries()) {
-      // file_name으로 uploads 조회
-      const { data: uploads, error: uploadErr } = await supabase
-        .from('ingest_uploads')
-        .select('id, file_name, created_at, status, raw_text')
-        .eq('file_name', filePath)
-        .order('created_at', { ascending: false })
-        .limit(1);
+      // source_file_path 형식: {upload_id}::{file_name}
+      let uploadId = null;
+      let actualFileName = filePath;
+      
+      if (filePath.includes('::')) {
+        const parts = filePath.split('::');
+        uploadId = parts[0];
+        actualFileName = parts[1] || filePath;
+      }
+      
+      let upload = null;
+      if (uploadId) {
+        // upload_id로 직접 조회 (더 정확함)
+        const { data: uploads, error: uploadErr } = await supabase
+          .from('ingest_uploads')
+          .select('id, file_name, created_at, status, raw_text')
+          .eq('id', uploadId)
+          .single();
+        
+        if (!uploadErr && uploads) {
+          upload = uploads;
+        }
+      }
+      
+      // upload_id로 찾지 못한 경우 file_name으로 조회 (하위 호환성)
+      if (!upload) {
+        const { data: uploads, error: uploadErr } = await supabase
+          .from('ingest_uploads')
+          .select('id, file_name, created_at, status, raw_text')
+          .eq('file_name', actualFileName)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        
+        if (!uploadErr && uploads && uploads.length > 0) {
+          upload = uploads[0];
+        }
+      }
 
-      if (!uploadErr && uploads && uploads.length > 0) {
-        const upload = uploads[0];
+      if (upload) {
         savedFiles.push({
           id: upload.id,
-          file_name: upload.file_name || filePath,
+          file_name: upload.file_name || actualFileName,
           created_at: upload.created_at,
           saved_at: fileInfo.saved_at,
           status: upload.status,
