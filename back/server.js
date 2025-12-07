@@ -429,18 +429,38 @@ app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body || {}
 
+    // 디버깅: 요청 데이터 확인
+    console.log('[AUTH] 로그인 시도:', { 
+      email, 
+      passwordLength: password ? password.length : 0,
+      hasSupabaseUrl: !!process.env.SUPABASE_URL,
+      hasSupabaseKey: !!process.env.SUPABASE_SERVICE_KEY 
+    })
+
     if (!email || !password) {
       return res.status(400).json({ message: 'email과 password가 필요합니다.' })
     }
 
+    // 이메일 형식 검증
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      console.warn('[AUTH] 이메일 형식 오류:', email)
+      return res.status(400).json({ message: '올바른 이메일 형식이 아닙니다.' })
+    }
+
     // Supabase Auth로 이메일/비밀번호 로그인 시도
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: email.trim().toLowerCase(), // 공백 제거 및 소문자 변환
       password,
     })
 
     if (error || !data?.session || !data?.user) {
-      console.error('[AUTH] 로그인 실패:', error)
+      console.error('[AUTH] 로그인 실패:', {
+        error: error?.message || error,
+        code: error?.code,
+        status: error?.status,
+        email: email
+      })
       return res
         .status(401)
         .json({ message: '이메일 또는 비밀번호가 올바르지 않습니다.' })
