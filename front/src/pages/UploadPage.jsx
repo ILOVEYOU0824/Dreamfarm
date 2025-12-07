@@ -283,12 +283,23 @@ export default function UploadPage() {
   async function fetchUploads() {
     setLoading(true)
     try {
+      // 삭제된 파일 ID 목록 가져오기 (localStorage에서)
+      let deletedIds = []
+      try {
+        deletedIds = JSON.parse(localStorage.getItem('deletedUploadIds') || '[]')
+      } catch (storageErr) {
+        console.warn('localStorage 읽기 실패:', storageErr)
+      }
+      
       // 백엔드에서 업로드 목록 가져오기
       const uploadsRes = await apiFetch('/api/uploads')
       const uploadsList = Array.isArray(uploadsRes) ? uploadsRes : []
       
+      // 삭제된 파일 필터링
+      const filteredUploadsList = uploadsList.filter(upload => !deletedIds.includes(upload.id))
+      
       // 백엔드 응답을 프론트엔드 형식으로 변환
-      const formattedUploads = uploadsList.map(upload => ({
+      const formattedUploads = filteredUploadsList.map(upload => ({
         id: upload.id,
         file_name: upload.file_name,
         file_size: upload.file_size || 0,
@@ -822,28 +833,64 @@ export default function UploadPage() {
                                   (hasRawText && !hasAnalysis)
       
       // 분석 결과가 있으면 UI에 반영 (log_entries가 없어도 raw_text는 업데이트)
-      updateUploads(prev => prev.map(u => {
-        if (u.id === uploadId) {
-          const updated = {
-            ...u,
-            status: uploadRes.status || u.status,
-            raw_text: rawText || u.raw_text, // 원본 텍스트 확실히 설정
-            overall_progress: uploadRes.progress || u.overall_progress,
-            error: uploadRes.error || u.error,
-            aiRecognitionFailed: aiRecognitionFailed, // AI 인식 실패 플래그 추가
-            log_entries: uploadRes.log_entries || u.log_entries || [], // log_entries 저장
-            details: uploadRes.details || u.details // details 저장
+      updateUploads(prev => {
+        const existingIndex = prev.findIndex(u => u.id === uploadId)
+        
+        // 기존 항목이 있으면 업데이트
+        if (existingIndex >= 0) {
+          return prev.map(u => {
+            if (u.id === uploadId) {
+              const updated = {
+                ...u,
+                status: uploadRes.status || u.status,
+                raw_text: rawText || u.raw_text, // 원본 텍스트 확실히 설정
+                overall_progress: uploadRes.progress || u.overall_progress,
+                error: uploadRes.error || u.error,
+                aiRecognitionFailed: aiRecognitionFailed, // AI 인식 실패 플래그 추가
+                log_entries: uploadRes.log_entries || u.log_entries || [], // log_entries 저장
+                details: uploadRes.details || u.details // details 저장
+              }
+              
+              // analysisByStudent가 있으면 병합
+              if (Object.keys(analysisByStudent).length > 0) {
+                updated.analysisByStudent = analysisByStudent
+              }
+              
+              return updated
+            }
+            return u
+          })
+        } else {
+          // 기존 항목이 없으면 새로 추가 (분석 완료 후 목록에 추가)
+          const newUpload = {
+            id: uploadId,
+            file_name: uploadRes.file_name || '파일',
+            file_size: uploadRes.file_size || 0,
+            file_type: uploadRes.file_type || 'application/pdf',
+            status: uploadRes.status || 'success',
+            created_at: uploadRes.created_at || new Date().toISOString(),
+            uploaded_at: uploadRes.created_at || new Date().toISOString(),
+            student_name: uploadRes.students && uploadRes.students.length > 0 
+              ? uploadRes.students[0].name 
+              : '학생 미확인',
+            raw_text: rawText,
+            has_log_entries: (uploadRes.log_entries && uploadRes.log_entries.length > 0) || false,
+            overall_progress: uploadRes.progress || 100,
+            error: uploadRes.error || null,
+            aiRecognitionFailed: aiRecognitionFailed,
+            log_entries: uploadRes.log_entries || [],
+            details: uploadRes.details || null,
+            analysisByStudent: analysisByStudent,
+            steps: {
+              upload: 100,
+              extract: rawText ? 100 : 0,
+              ai: uploadRes.status === 'success' ? 100 : 0,
+              save: uploadRes.status === 'success' ? 100 : 0
+            }
           }
-          
-          // analysisByStudent가 있으면 병합
-          if (Object.keys(analysisByStudent).length > 0) {
-            updated.analysisByStudent = analysisByStudent
-          }
-          
-          return updated
+          return [newUpload, ...prev]
         }
-        return u
-      }))
+      })
       
       console.log(`[상세] 업로드 목록 업데이트 완료`)
     } catch (err) {
@@ -1151,6 +1198,17 @@ export default function UploadPage() {
       await apiFetch(`/api/uploads/${uploadId}`, {
         method: 'DELETE'
       })
+      
+      // 삭제된 파일 ID를 localStorage에 저장 (새로고침 시 필터링용)
+      try {
+        const deletedIds = JSON.parse(localStorage.getItem('deletedUploadIds') || '[]')
+        if (!deletedIds.includes(uploadId)) {
+          deletedIds.push(uploadId)
+          localStorage.setItem('deletedUploadIds', JSON.stringify(deletedIds))
+        }
+      } catch (storageErr) {
+        console.warn('localStorage 저장 실패:', storageErr)
+      }
       
       // 로컬 상태에서도 삭제
       updateUploads(prev => prev.filter(u => u.id !== uploadId))
