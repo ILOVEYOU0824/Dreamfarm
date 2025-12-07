@@ -2891,6 +2891,85 @@ app.post(['/uploads/:id/log', '/api/uploads/:id/log'], async (req, res) => {
 });
 
 
+// 🧾 리포트 템플릿 조회/생성 헬퍼 함수
+async function getOrCreateReportTemplate(templateCode) {
+  const { data: existing, error: selErr } = await supabase
+    .from('report_templates')
+    .select('*')
+    .eq('code', templateCode)
+    .single();
+
+  if (!selErr && existing) return existing;
+
+  const { data: created, error: insErr } = await supabase
+    .from('report_templates')
+    .insert([
+      {
+        code: templateCode,
+        name: 'AI 마크다운 리포트',
+        format: 'md',
+        config: {},
+      },
+    ])
+    .select('*')
+    .single();
+
+  if (insErr) {
+    console.error('[report_templates] 생성 에러:', insErr);
+    throw new Error('리포트 템플릿 생성 실패');
+  }
+
+  return created;
+}
+
+// 🧾 리포트 생성 API
+// POST /report-runs, /api/report-runs
+app.post(['/report-runs', '/api/report-runs'], async (req, res) => {
+  try {
+    const { template_code, requested_by, params } = req.body || {};
+
+    if (!params || !params.student_id || !params.markdown) {
+      return res
+        .status(400)
+        .json({ message: 'student_id와 markdown이 필요합니다.' });
+    }
+
+    const templateCode = template_code || 'ai_markdown';
+    let template;
+
+    try {
+      template = await getOrCreateReportTemplate(templateCode);
+    } catch (e) {
+      console.error('템플릿 조회/생성 에러:', e);
+      return res.status(500).json({ message: '리포트 템플릿 처리 실패' });
+    }
+
+    const insertRun = {
+      template_id: template.id,
+      requested_by: requested_by || null,
+      params,
+      status: 'completed',
+      error: null,
+    };
+
+    const { data: run, error: runErr } = await supabase
+      .from('report_runs')
+      .insert([insertRun])
+      .select('*')
+      .single();
+
+    if (runErr) {
+      console.error('POST /report-runs DB 에러:', runErr);
+      return res.status(500).json({ message: 'DB Error', error: runErr });
+    }
+
+    return res.status(201).json(run);
+  } catch (e) {
+    console.error('POST /report-runs 에러:', e);
+    return res.status(500).json({ message: 'Server Error', error: e.toString() });
+  }
+});
+
 // 🧾 리포트 실행 이력 조회 API
 // GET /report-runs
 // (필요하면 나중에 ?status=success 같은 필터 추가 가능)
@@ -2921,6 +3000,86 @@ app.get(['/report-runs', '/api/report-runs'], async (req, res) => {
     return res
       .status(500)
       .json({ message: 'Server Error', error: e.toString() });
+  }
+});
+
+// 🧾 리포트 삭제 API
+app.delete(['/report-runs/:id', '/api/report-runs/:id'], async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { error: outErr } = await supabase
+      .from('report_outputs')
+      .delete()
+      .eq('run_id', id);
+
+    if (outErr) {
+      console.error('report_outputs 삭제 에러:', outErr);
+    }
+
+    const { error: runErr } = await supabase
+      .from('report_runs')
+      .delete()
+      .eq('id', id);
+
+    if (runErr) {
+      console.error('DELETE /report-runs/:id DB 에러:', runErr);
+      return res.status(500).json({ message: 'DB Error', error: runErr });
+    }
+
+    return res.status(204).send();
+  } catch (e) {
+    console.error('DELETE /report-runs/:id 에러:', e);
+    return res.status(500).json({ message: 'Server Error', error: e.toString() });
+  }
+});
+
+// 🧾 리포트 마크다운 다운로드 API
+// GET /report-runs/:id/download?format=md
+app.get(['/report-runs/:id/download', '/api/report-runs/:id/download'], async (req, res) => {
+  const { id } = req.params;
+  const format = (req.query.format || 'md').toString().toLowerCase();
+
+  if (format !== 'md' && format !== 'markdown') {
+    return res.status(400).json({ message: '지원하지 않는 포맷입니다. md만 지원됩니다.' });
+  }
+
+  try {
+    const { data: run, error } = await supabase
+      .from('report_runs')
+      .select('id, params')
+      .eq('id', id)
+      .single();
+
+    if (error || !run) {
+      console.error('report_runs 단건 조회 에러:', error);
+      return res.status(404).json({ message: '리포트를 찾을 수 없습니다.' });
+    }
+
+    const params = run.params || {};
+    const markdown = params.markdown || '';
+
+    if (!markdown) {
+      return res.status(404).json({ message: '저장된 마크다운 내용이 없습니다.' });
+    }
+
+    const studentName = params.student_name || 'report';
+    const from = params.from || params.date_from || '';
+    const to = params.to || params.date_to || '';
+    const dateLabel = from && to && from !== to ? `${from}~${to}` : (from || to || '');
+
+    const safeName = `${studentName}_${dateLabel}`.trim().replace(/[^0-9a-zA-Z가-힣_\-]+/g, '_') || 'report';
+    const fileName = `${safeName}.md`;
+
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(fileName)}"`,
+    );
+
+    return res.send(markdown);
+  } catch (e) {
+    console.error('GET /report-runs/:id/download 에러:', e);
+    return res.status(500).json({ message: 'Server Error', error: e.toString() });
   }
 });
 
