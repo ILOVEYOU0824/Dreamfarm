@@ -2226,7 +2226,7 @@ app.get(['/uploads', '/api/uploads'], async (req, res) => {
     const { data, error } = await supabase
       .from('ingest_uploads')
       .select(
-        'id, file_name, status, progress, error, created_at, student_id, uploaded_by',
+        'id, file_name, status, progress, error, created_at, student_id, uploaded_by, raw_text',
       )
       .order('created_at', { ascending: false });
 
@@ -2276,6 +2276,64 @@ app.get(['/uploads', '/api/uploads'], async (req, res) => {
       }
     }
 
+    // 각 업로드 파일에 대해 log_entries 존재 여부 확인
+    const uploadIds = uploadsRaw.map(u => u.id);
+    
+    // log_entries 조회: 새로운 형식({upload_id}::{file_name})과 기존 형식(file_name) 모두 확인
+    let logEntriesByUploadId = {};
+    if (uploadIds.length > 0) {
+      // 모든 가능한 source_file_path 값 수집
+      const allPaths = new Set();
+      uploadsRaw.forEach(u => {
+        // 새로운 형식: {upload_id}::{file_name}
+        allPaths.add(`${u.id}::${u.file_name}`);
+        // 기존 형식: file_name만
+        allPaths.add(u.file_name);
+      });
+      
+      // 각 경로에 대해 개별 조회 (Supabase의 .or()는 많은 조건에서 제한이 있을 수 있음)
+      // 대신 배치로 처리: 최대 100개씩 나누어 조회
+      const pathsArray = Array.from(allPaths);
+      const batchSize = 100;
+      
+      for (let i = 0; i < pathsArray.length; i += batchSize) {
+        const batch = pathsArray.slice(i, i + batchSize);
+        const orConditions = batch.map(path => `source_file_path.eq.${path}`).join(',');
+        
+        const { data: logEntries, error: logErr } = await supabase
+          .from('log_entries')
+          .select('source_file_path')
+          .or(orConditions);
+        
+        if (logErr) {
+          console.error('log_entries 조회 에러 (uploads 목록):', logErr);
+          continue;
+        }
+        
+        if (logEntries && Array.isArray(logEntries)) {
+          // source_file_path에서 upload_id 추출
+          logEntries.forEach(entry => {
+            const path = entry.source_file_path;
+            if (!path) return;
+            
+            // 새로운 형식: {upload_id}::{file_name}
+            if (path.includes('::')) {
+              const uploadId = path.split('::')[0];
+              if (uploadId && uploadIds.includes(uploadId)) {
+                logEntriesByUploadId[uploadId] = true;
+              }
+            } else {
+              // 기존 형식: file_name만 (:: 구분자가 없는 경우만)
+              const upload = uploadsRaw.find(u => u.file_name === path);
+              if (upload) {
+                logEntriesByUploadId[upload.id] = true;
+              }
+            }
+          });
+        }
+      }
+    }
+
     const uploads = uploadsRaw.map(u => ({
       id: u.id,
       file_name: u.file_name,
@@ -2288,6 +2346,8 @@ app.get(['/uploads', '/api/uploads'], async (req, res) => {
       uploader_name: uploaderById[u.uploaded_by] || null,
       student_id: u.student_id,
       student_name: studentsById[u.student_id] || null,
+      raw_text: u.raw_text || null, // raw_text 포함
+      has_log_entries: !!logEntriesByUploadId[u.id], // log_entries 존재 여부
     }));
 
     res.json(uploads);
