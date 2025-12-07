@@ -617,12 +617,10 @@ app.get('/api/students', async (req, res) => {
 // GET /api/students/record-counts
 app.get('/api/students/record-counts', async (req, res) => {
   try {
-    // 모든 학생 목록 가져오기
+    // 모든 학생 목록 가져오기 (status 필터 없이 모든 학생)
     const { data: students, error: studentsError } = await supabase
       .from('students')
-      .select('id')
-      .eq('status', '재학중')
-      .or('status.is.null,status.eq.재학');
+      .select('id');
 
     if (studentsError) {
       console.error('[기록수] 학생 목록 조회 에러:', studentsError);
@@ -655,13 +653,17 @@ app.get('/api/students/record-counts', async (req, res) => {
 
     // 학생별로 기록수 집계
     if (logs && Array.isArray(logs)) {
+      console.log('[기록수] log_entries 조회 결과:', logs.length, '개')
       logs.forEach(log => {
         if (log.student_id && recordCounts[log.student_id] !== undefined) {
           recordCounts[log.student_id] = (recordCounts[log.student_id] || 0) + 1;
         }
       });
+    } else {
+      console.log('[기록수] log_entries 데이터 없음 또는 배열 아님')
     }
 
+    console.log('[기록수] 최종 집계 결과:', recordCounts)
     res.json(recordCounts);
   } catch (e) {
     console.error('/api/students/record-counts 에러:', e);
