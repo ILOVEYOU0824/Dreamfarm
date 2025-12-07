@@ -1982,13 +1982,10 @@ export default function UploadPage() {
                 return false;
               }
               
-              // status가 success이면서 실제로 분석 결과가 있는 경우만 표시
+              // status가 success인 경우 모두 표시 (AI 분석이 완료된 파일)
+              // 단, 저장된 파일은 제외 (위에서 이미 필터링됨)
               if (u.status === 'success') {
-                // raw_text가 있거나 log_entries가 있거나 analysisByStudent가 있어야 함
-                const hasRawText = u.raw_text && u.raw_text.length > 0
-                const hasLogEntries = u.has_log_entries || (u.log_entries && u.log_entries.length > 0) // 백엔드에서 반환하는 플래그 사용
-                const hasAnalysis = u.analysisByStudent && Object.keys(u.analysisByStudent).length > 0
-                return hasRawText || hasLogEntries || hasAnalysis
+                return true
               }
               // error 상태이면서 raw_text가 있는 경우 (수정 가능한 경우)
               if (u.status === 'error' && u.raw_text && u.raw_text.length > 0) {
