@@ -2798,12 +2798,19 @@ app.delete(['/uploads/:id', '/api/uploads/:id'], async (req, res) => {
     }
 
     if (upload.file_name) {
+      // 새로운 형식: {upload_id}::{file_name}
+      const newFormatPath = `${id}::${upload.file_name}`
+      
+      // 두 가지 형식 모두 삭제 (OR 조건)
       const { error: delLogsErr } = await supabase
         .from('log_entries')
         .delete()
-        .eq('source_file_path', upload.file_name)
+        .or(`source_file_path.eq.${newFormatPath},source_file_path.eq.${upload.file_name}`)
+      
       if (delLogsErr) {
         console.error('삭제 중 log_entries 에러:', delLogsErr)
+      } else {
+        console.log(`[DELETE] 업로드 ${id}의 log_entries 삭제 완료 (file_name: ${upload.file_name})`)
       }
     }
 
