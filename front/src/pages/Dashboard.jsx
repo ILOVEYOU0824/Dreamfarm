@@ -1196,7 +1196,11 @@ export default function Dashboard() {
                     selected={startDate ? new Date(startDate + 'T00:00:00') : null}
                     onChange={(date) => {
                       if (date) {
-                        const dateStr = date.toISOString().split('T')[0]
+                        // 로컬 타임존을 사용하여 날짜 문자열 생성 (타임존 문제 해결)
+                        const year = date.getFullYear()
+                        const month = String(date.getMonth() + 1).padStart(2, '0')
+                        const day = String(date.getDate()).padStart(2, '0')
+                        const dateStr = `${year}-${month}-${day}`
                         if (dateStr !== startDate) {
                           setStartDate(dateStr)
                         }
@@ -1221,7 +1225,11 @@ export default function Dashboard() {
                     selected={endDate ? new Date(endDate + 'T00:00:00') : null}
                     onChange={(date) => {
                       if (date) {
-                        const dateStr = date.toISOString().split('T')[0]
+                        // 로컬 타임존을 사용하여 날짜 문자열 생성 (타임존 문제 해결)
+                        const year = date.getFullYear()
+                        const month = String(date.getMonth() + 1).padStart(2, '0')
+                        const day = String(date.getDate()).padStart(2, '0')
+                        const dateStr = `${year}-${month}-${day}`
                         if (dateStr !== endDate) {
                           setEndDate(dateStr)
                         }
