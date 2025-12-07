@@ -1,5 +1,5 @@
 // src/pages/Dashboard.jsx
-import React, { useEffect, useState, useMemo, useCallback } from 'react'
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import Layout from '../components/Layout'
 import AIChat from '../components/AIChat'
 import './Dashboard.css'
@@ -47,7 +47,12 @@ export default function Dashboard() {
   const [activityDetails, setActivityDetails] = useState([]) // 활동 상세 내역 데이터
   const [selectedEmotionKeywords, setSelectedEmotionKeywords] = useState([]) // 개별분석에 표시할 선택한 감정 키워드
   const [activityEmotionAiComment, setActivityEmotionAiComment] = useState('') // 활동별 감정 분석 AI 코멘트
+  const [isAiAnalyzing, setIsAiAnalyzing] = useState(false) // AI 분석 중 상태
   const [datesWithRecords, setDatesWithRecords] = useState(new Set()) // 기록이 있는 날짜 목록 (YYYY-MM-DD 형식)
+  
+  // API 요청 취소를 위한 AbortController 관리
+  const abortControllerRef = useRef(null)
+  const aiAbortControllerRef = useRef(null)
   // 기록이 있는 날짜를 Date 객체 배열로 변환 (react-datepicker용)
   const datesWithRecordsArray = useMemo(() => {
     return Array.from(datesWithRecords).map(dateStr => {
@@ -597,6 +602,68 @@ export default function Dashboard() {
     }
   }, [])
 
+  // AbortController를 지원하는 fetch 헬퍼 함수
+  const fetchWithAbort = useCallback(async (url, signal, options = {}) => {
+    // signal이 이미 abort되었는지 확인
+    if (signal.aborted) {
+      const err = new Error('Request aborted')
+      err.name = 'AbortError'
+      throw err
+    }
+    
+    const token = localStorage.getItem('token')
+    const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || '/api').replace(/\/+$/, '')
+    const fullUrl = url.startsWith('http') ? url : `${API_BASE}${url.startsWith('/') ? url : '/' + url}`
+    
+    const headers = { ...(options.headers || {}) }
+    if (!headers['Content-Type'] && options.body && typeof options.body === 'string') {
+      headers['Content-Type'] = 'application/json'
+    }
+    if (token) headers.Authorization = `Bearer ${token}`
+    
+    const fetchOptions = {
+      ...options,
+      signal,
+      headers
+    }
+    
+    // body가 객체면 JSON 문자열로 변환
+    if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
+      fetchOptions.body = JSON.stringify(options.body)
+    }
+    
+    try {
+      const res = await fetch(fullUrl, fetchOptions)
+      
+      if (!res.ok) {
+        const text = await res.text()
+        let body = null
+        try {
+          body = JSON.parse(text)
+        } catch (e) {
+          body = { message: text }
+        }
+        const err = new Error(body?.message || res.statusText || 'API error')
+        err.status = res.status
+        err.body = body
+        throw err
+      }
+      
+      if (res.status === 204) return null
+      const ct = res.headers.get('content-type') || ''
+      if (ct.includes('application/json')) return res.json()
+      return res.text()
+    } catch (err) {
+      // AbortError인 경우 그대로 전달
+      if (err.name === 'AbortError' || signal.aborted) {
+        const abortErr = new Error('Request aborted')
+        abortErr.name = 'AbortError'
+        throw abortErr
+      }
+      throw err
+    }
+  }, [])
+
   // 학생별 대시보드 데이터 로드 (감정 키워드, 활동 유형, 활동별 능력 등)
   useEffect(() => {
     async function loadStudentDashboardData() {
@@ -626,11 +693,18 @@ export default function Dashboard() {
       }
       
       try {
-        // 이미 로딩 중이면 중복 요청 방지
-        if (isDataLoading && !initialLoading) {
-          console.log('[대시보드] 이미 로딩 중이므로 요청 스킵')
-          return
+        // 이전 요청 취소
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort()
         }
+        if (aiAbortControllerRef.current) {
+          aiAbortControllerRef.current.abort()
+          setIsAiAnalyzing(false)
+        }
+        
+        // 새로운 AbortController 생성
+        const abortController = new AbortController()
+        abortControllerRef.current = abortController
         
         // 초기 로드가 완료된 후에는 로딩 화면을 표시하지 않음 (데이터만 업데이트)
         // initialLoading이 false가 된 후에는 다시 true로 설정하지 않음
@@ -652,15 +726,34 @@ export default function Dashboard() {
         
         const logsUrl = `/api/log_entries?student_id=${selectedStudentId}${startDate ? `&from=${startDate}` : ''}${endDate ? `&to=${endDate}` : ''}&status=success`
         
-        // 두 API를 병렬로 호출하여 속도 개선
+        // 두 API를 병렬로 호출하여 속도 개선 (AbortController 지원)
         console.log('[대시보드] 병렬 API 호출 시작')
-        const [res, logsRes] = await Promise.all([
-          apiFetch(apiUrl),
-          apiFetch(logsUrl).catch(err => {
-            console.error('[대시보드] log_entries 조회 실패:', err)
-            return { items: [] }
-          })
-        ])
+        let res, logsRes
+        try {
+          [res, logsRes] = await Promise.all([
+            fetchWithAbort(apiUrl, abortController.signal),
+            fetchWithAbort(logsUrl, abortController.signal).catch(err => {
+              if (err.name === 'AbortError') {
+                throw err
+              }
+              console.error('[대시보드] log_entries 조회 실패:', err)
+              return { items: [] }
+            })
+          ])
+        } catch (err) {
+          if (err.name === 'AbortError') {
+            console.log('[대시보드] 요청 취소됨')
+            return
+          }
+          throw err
+        }
+        
+        // 요청이 취소되었는지 확인
+        if (abortController.signal.aborted) {
+          console.log('[대시보드] 요청 취소됨')
+          return
+        }
+        
         console.log('[대시보드] 병렬 API 호출 완료')
         
         const logs = Array.isArray(logsRes.items) ? logsRes.items : []
@@ -852,9 +945,24 @@ export default function Dashboard() {
           // 6-1. 활동별 감정 분석 AI 코멘트 생성 (지연 로드 - 비동기로 처리)
           // AI 기능은 별도로 처리하여 초기 로딩을 방해하지 않음
           if (updatedActivityEmotionData.length > 0 && selectedStudentId) {
+            // 이전 AI 분석 취소
+            if (aiAbortControllerRef.current) {
+              aiAbortControllerRef.current.abort()
+            }
+            
+            // 새로운 AI AbortController 생성
+            const aiAbortController = new AbortController()
+            aiAbortControllerRef.current = aiAbortController
+            
             // AI 호출을 비동기로 처리 (데이터 표시를 막지 않음) - 더 긴 지연으로 UI 먼저 렌더링
             setTimeout(async () => {
+              // 학생이 변경되었는지 확인
+              if (aiAbortController.signal.aborted) {
+                return
+              }
+              
               try {
+                setIsAiAnalyzing(true)
                 const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
                 const studentName = currentStudent ? (currentStudent.nickname || currentStudent.name) : '학생'
                 
@@ -869,7 +977,7 @@ export default function Dashboard() {
                 if (activityEmotionSummary.length > 0) {
                   const aiPrompt = `${studentName} 학생의 활동별 감정 분석 결과입니다:\n\n${activityEmotionSummary.map(a => `- ${a.type}: ${a.emotions}`).join('\n')}\n\n위 데이터를 바탕으로 ${studentName} 학생의 감정 상태에 대한 전문적인 코멘트를 2-3문장으로 작성해주세요.`
                   
-                  const aiRes = await apiFetch('/api/ai/chat', {
+                  const aiRes = await fetchWithAbort('/api/ai/chat', aiAbortController.signal, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -883,6 +991,11 @@ export default function Dashboard() {
                     })
                   })
                   
+                  // 요청이 취소되었는지 확인
+                  if (aiAbortController.signal.aborted) {
+                    return
+                  }
+                  
                   if (aiRes && aiRes.message) {
                     setActivityEmotionAiComment(aiRes.message)
                   } else {
@@ -892,12 +1005,21 @@ export default function Dashboard() {
                   setActivityEmotionAiComment('')
                 }
               } catch (err) {
+                if (err.name === 'AbortError') {
+                  console.log('[대시보드] AI 분석 취소됨')
+                  return
+                }
                 console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
                 setActivityEmotionAiComment('')
+              } finally {
+                if (!aiAbortController.signal.aborted) {
+                  setIsAiAnalyzing(false)
+                }
               }
             }, 500) // 500ms 지연하여 UI가 먼저 렌더링되도록
           } else {
             setActivityEmotionAiComment('')
+            setIsAiAnalyzing(false)
           }
         }, 50) // 50ms 지연하여 핵심 데이터 먼저 표시
         
@@ -926,6 +1048,10 @@ export default function Dashboard() {
         }
         
       } catch (err) {
+        if (err.name === 'AbortError') {
+          console.log('[대시보드] 요청 취소됨')
+          return
+        }
         console.error('[대시보드] 학생별 데이터 로드 실패:', err)
         // 에러 발생 시 빈 데이터로 설정
         setEmotionKeywords([])
@@ -944,6 +1070,7 @@ export default function Dashboard() {
         })))
         setActivityAbilityAnalysis([])
         setActivityEmotionAiComment('')
+        setIsAiAnalyzing(false)
         setDatesWithRecords(new Set())
       } finally {
         if (initialLoading) {
@@ -1707,7 +1834,12 @@ export default function Dashboard() {
                   <h3>활동별 감정 분석</h3>
                 </div>
                 <div className="activity-analysis-summary-content">
-                  {activityEmotionAiComment ? (
+                  {isAiAnalyzing ? (
+                    <div className="ai-analyzing">
+                      <div className="loading-spinner"></div>
+                      <p>AI 분석 중입니다...</p>
+                    </div>
+                  ) : activityEmotionAiComment ? (
                     <p>{activityEmotionAiComment}</p>
                   ) : (
                     <p dangerouslySetInnerHTML={{ __html: generateActivityEmotionSummary() }}></p>
