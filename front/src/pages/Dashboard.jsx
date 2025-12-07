@@ -114,7 +114,11 @@ export default function Dashboard() {
     const userData = JSON.parse(localStorage.getItem('user') || '{}')
     if (userData.name) setUser(userData)
 
-    loadStudents()
+    // 학생 목록 로드
+    loadStudents().then(() => {
+      // 학생 목록 로드 완료 후 모든 학생의 기록수 미리 로드
+      // students 상태가 업데이트되면 별도 useEffect에서 처리
+    })
     
     // 활동 상세 내역 데이터는 대시보드 API에서 가져오므로 여기서는 제거
     // (loadStudentDashboardData에서 처리됨)
@@ -123,6 +127,15 @@ export default function Dashboard() {
     setActivityAbilityAnalysis([])
     setInitialLoading(false)
   }, [])
+  
+  // 학생 목록이 로드되면 모든 학생의 기록수 미리 로드
+  useEffect(() => {
+    if (students.length > 0 && Object.keys(studentRecordCounts).length === 0) {
+      console.log('[대시보드] 초기 로드: 모든 학생 기록수 로드 시작')
+      const studentIds = students.map(s => s.id)
+      loadAllStudentRecordCounts(studentIds)
+    }
+  }, [students])
 
   // 페이지 포커스 시 학생 목록 갱신 (학생 추가/업로드 후 자동 반영)
   useEffect(() => {
@@ -828,49 +841,53 @@ export default function Dashboard() {
         setActivityEmotionData(updatedActivityEmotionData)
         console.log('[대시보드] 활동별 감정 키워드 업데이트:', updatedActivityEmotionData)
         
-        // 6-1. 활동별 감정 분석 AI 코멘트 생성
+        // 6-1. 활동별 감정 분석 AI 코멘트 생성 (지연 로드 - 비동기로 처리)
+        // AI 기능은 별도로 처리하여 초기 로딩을 방해하지 않음
         if (updatedActivityEmotionData.length > 0 && selectedStudentId) {
-          try {
-            const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
-            const studentName = currentStudent ? (currentStudent.nickname || currentStudent.name) : '학생'
-            
-            // 활동별 감정 데이터를 AI에 전달
-            const activityEmotionSummary = updatedActivityEmotionData
-              .filter(activity => activity.emotions.length > 0)
-              .map(activity => ({
-                type: activity.label,
-                emotions: activity.emotions.map(e => `${e.keyword}(${e.count}회)`).join(', ')
-              }))
-            
-            if (activityEmotionSummary.length > 0) {
-              const aiPrompt = `${studentName} 학생의 활동별 감정 분석 결과입니다:\n\n${activityEmotionSummary.map(a => `- ${a.type}: ${a.emotions}`).join('\n')}\n\n위 데이터를 바탕으로 ${studentName} 학생의 감정 상태에 대한 전문적인 코멘트를 2-3문장으로 작성해주세요.`
+          // AI 호출을 비동기로 처리 (데이터 표시를 막지 않음)
+          setTimeout(async () => {
+            try {
+              const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
+              const studentName = currentStudent ? (currentStudent.nickname || currentStudent.name) : '학생'
               
-              const aiRes = await apiFetch('/api/ai/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  message: aiPrompt,
-                  context: {
-                    selectedStudentId,
-                    selectedStudentName: studentName,
-                    startDate,
-                    endDate
-                  }
+              // 활동별 감정 데이터를 AI에 전달
+              const activityEmotionSummary = updatedActivityEmotionData
+                .filter(activity => activity.emotions.length > 0)
+                .map(activity => ({
+                  type: activity.label,
+                  emotions: activity.emotions.map(e => `${e.keyword}(${e.count}회)`).join(', ')
+                }))
+              
+              if (activityEmotionSummary.length > 0) {
+                const aiPrompt = `${studentName} 학생의 활동별 감정 분석 결과입니다:\n\n${activityEmotionSummary.map(a => `- ${a.type}: ${a.emotions}`).join('\n')}\n\n위 데이터를 바탕으로 ${studentName} 학생의 감정 상태에 대한 전문적인 코멘트를 2-3문장으로 작성해주세요.`
+                
+                const aiRes = await apiFetch('/api/ai/chat', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    message: aiPrompt,
+                    context: {
+                      selectedStudentId,
+                      selectedStudentName: studentName,
+                      startDate,
+                      endDate
+                    }
+                  })
                 })
-              })
-              
-              if (aiRes && aiRes.message) {
-                setActivityEmotionAiComment(aiRes.message)
+                
+                if (aiRes && aiRes.message) {
+                  setActivityEmotionAiComment(aiRes.message)
+                } else {
+                  setActivityEmotionAiComment('')
+                }
               } else {
                 setActivityEmotionAiComment('')
               }
-            } else {
+            } catch (err) {
+              console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
               setActivityEmotionAiComment('')
             }
-          } catch (err) {
-            console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
-            setActivityEmotionAiComment('')
-          }
+          }, 100) // 100ms 지연하여 UI가 먼저 렌더링되도록
         } else {
           setActivityEmotionAiComment('')
         }
@@ -1190,7 +1207,7 @@ export default function Dashboard() {
                         className="student-record-count-number"
                         style={{ color: studentColor }}
                       >
-                        {selectedStudentId === studentId && studentRecordCounts[studentId] !== undefined 
+                        {studentRecordCounts[studentId] !== undefined 
                           ? studentRecordCounts[studentId] 
                           : '-'}
                       </div>
