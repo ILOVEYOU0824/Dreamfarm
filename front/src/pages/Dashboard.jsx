@@ -543,39 +543,36 @@ export default function Dashboard() {
     })
   }
 
-  // 모든 학생의 기록수 로드 함수
+  // 모든 학생의 기록수 로드 함수 (최적화: 한 번의 API 호출)
   async function loadAllStudentRecordCounts(studentIds) {
     if (!studentIds || studentIds.length === 0) return
     
     try {
       console.log('[대시보드] 모든 학생 기록수 로드 시작:', studentIds.length, '명')
       
-      // 모든 학생에 대해 병렬로 기록수 가져오기
-      const recordCountPromises = studentIds.map(async (studentId) => {
-        try {
-          const res = await apiFetch(`/api/dashboard?studentId=${studentId}`)
-          const recordCount = res.metrics?.recordCount || 0
-          return { studentId, recordCount }
-        } catch (err) {
-          console.error(`[대시보드] 학생 ${studentId} 기록수 로드 실패:`, err)
-          return { studentId, recordCount: 0 }
-        }
-      })
-      
-      const results = await Promise.all(recordCountPromises)
+      // 모든 학생의 기록수를 한 번에 가져오기
+      const recordCounts = await apiFetch('/api/students/record-counts')
       
       // 결과를 state에 반영
       setStudentRecordCounts(prev => {
         const updated = { ...prev }
-        results.forEach(({ studentId, recordCount }) => {
-          updated[studentId] = recordCount
+        studentIds.forEach(studentId => {
+          updated[studentId] = recordCounts[studentId] || 0
         })
         return updated
       })
       
-      console.log('[대시보드] 모든 학생 기록수 로드 완료:', results)
+      console.log('[대시보드] 모든 학생 기록수 로드 완료:', recordCounts)
     } catch (err) {
       console.error('[대시보드] 모든 학생 기록수 로드 실패:', err)
+      // 실패 시 빈 객체로 설정
+      setStudentRecordCounts(prev => {
+        const updated = { ...prev }
+        studentIds.forEach(studentId => {
+          updated[studentId] = 0
+        })
+        return updated
+      })
     }
   }
 
