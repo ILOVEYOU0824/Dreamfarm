@@ -175,9 +175,17 @@
   pointer-events: none;
 }
 
-/* react-datepicker 캘린더 위치 조정 */
+/* react-datepicker 캘린더 위치 조정 - 항상 맨 앞에 표시 */
 .react-datepicker-popper {
-  z-index: 1000;
+  z-index: 9999 !important;
+}
+
+.react-datepicker {
+  z-index: 9999 !important;
+}
+
+.react-datepicker__portal {
+  z-index: 9999 !important;
 }
 
 .student-filter-input:focus {
