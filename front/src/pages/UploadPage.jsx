@@ -469,7 +469,7 @@ export default function UploadPage() {
         console.warn(`[업로드] Gemini API 헬스체크 실패 (무시):`, healthErr)
       }
       
-      // 각 파일을 백엔드에 업로드
+      // 각 파일을 백엔드에 업로드 (개별 실패 허용)
       const uploadPromises = list.map(async (file) => {
         const formData = new FormData()
         formData.append('file', file)
@@ -530,11 +530,71 @@ export default function UploadPage() {
           }
         } catch (err) {
           console.error(`[업로드] 파일 ${file.name} 업로드 실패:`, err)
-          throw err
+          
+          // RLS 정책 오류 감지
+          const isRLSError = err.body?.code === '42501' || 
+                            err.message?.includes('row-level security') ||
+                            err.message?.includes('RLS')
+          
+          // 에러 정보를 포함한 객체 반환 (실패한 파일도 목록에 표시)
+          return {
+            id: `error-${Date.now()}-${Math.random()}`,
+            file_name: file.name,
+            file_size: file.size,
+            file_type: file.type,
+            status: 'error',
+            created_at: new Date().toISOString(),
+            uploaded_at: new Date().toISOString(),
+            raw_text: null,
+            overall_progress: 0,
+            error: isRLSError 
+              ? '데이터베이스 권한 오류: 백엔드 서버의 Supabase 설정을 확인해주세요. (RLS 정책 위반)'
+              : err.message || '업로드 실패',
+            steps: {
+              upload: 0,
+              extract: 0,
+              ai: 0,
+              save: 0
+            }
+          }
         }
       })
       
-      const newUploads = await Promise.all(uploadPromises)
+      // 모든 업로드 시도 (성공/실패 모두 포함)
+      const uploadResults = await Promise.allSettled(uploadPromises)
+      const newUploads = uploadResults.map(result => 
+        result.status === 'fulfilled' ? result.value : {
+          id: `error-${Date.now()}-${Math.random()}`,
+          file_name: '알 수 없음',
+          file_size: 0,
+          file_type: 'unknown',
+          status: 'error',
+          created_at: new Date().toISOString(),
+          uploaded_at: new Date().toISOString(),
+          raw_text: null,
+          overall_progress: 0,
+          error: result.reason?.message || '알 수 없는 오류',
+          steps: { upload: 0, extract: 0, ai: 0, save: 0 }
+        }
+      )
+      
+      // 성공/실패 개수 확인
+      const successCount = newUploads.filter(u => u.status !== 'error').length
+      const errorCount = newUploads.filter(u => u.status === 'error').length
+      
+      if (errorCount > 0) {
+        const rlsErrors = newUploads.filter(u => u.error?.includes('RLS') || u.error?.includes('row-level security'))
+        if (rlsErrors.length > 0) {
+          setError(`일부 파일 업로드 실패 (${errorCount}개). 데이터베이스 권한 오류가 발생했습니다. 백엔드 관리자에게 문의하세요.`)
+        } else {
+          setError(`일부 파일 업로드 실패 (${errorCount}개). 자세한 내용은 각 파일의 상태를 확인하세요.`)
+        }
+      }
+      
+      if (successCount > 0 && errorCount === 0) {
+        // 모든 파일이 성공한 경우에만 에러 메시지 초기화
+        setError('')
+      }
       
       // 상태 업데이트
       updateUploads(prev => [...newUploads, ...prev])
@@ -548,7 +608,20 @@ export default function UploadPage() {
       
     } catch (err) {
       console.error('파일 업로드 실패:', err)
-      setError(`업로드 실패: ${err.message || '알 수 없는 오류'}`)
+      
+      // 더 구체적인 에러 메시지
+      let errorMessage = '업로드 실패: '
+      if (err.body?.code === '42501' || err.message?.includes('row-level security')) {
+        errorMessage += '데이터베이스 권한 오류가 발생했습니다. 백엔드 서버의 Supabase RLS 정책 설정을 확인해주세요.'
+      } else if (err.status === 401 || err.status === 403) {
+        errorMessage += '인증 오류가 발생했습니다. 로그인 상태를 확인해주세요.'
+      } else if (err.status === 500) {
+        errorMessage += '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+      } else {
+        errorMessage += err.message || '알 수 없는 오류'
+      }
+      
+      setError(errorMessage)
     } finally {
       setUploading(false)
     }

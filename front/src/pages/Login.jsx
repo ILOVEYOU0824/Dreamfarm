@@ -35,6 +35,9 @@ export default function Login() {
         return
       }
 
+      // 디버깅: 전송되는 데이터 확인
+      console.log('[Login] 로그인 시도:', { email, passwordLength: password.length })
+      
       const data = await apiFetch('/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -53,8 +56,20 @@ export default function Login() {
         alert('로그인에 실패했습니다. (토큰 없음)')
       }
     } catch (err) {
-      console.error(err)
-      alert('로그인 오류: 아이디와 비밀번호를 확인해주세요.')
+      console.error('로그인 오류 상세:', err)
+      
+      // 더 구체적인 에러 메시지 제공
+      let errorMessage = '로그인에 실패했습니다.'
+      
+      if (err.status === 400 || err.status === 401) {
+        errorMessage = '아이디 또는 비밀번호가 올바르지 않습니다.\n\n확인 사항:\n- 이메일 주소가 정확한지 확인해주세요\n- 비밀번호가 올바른지 확인해주세요\n- Supabase에 등록된 계정인지 확인해주세요'
+      } else if (err.status === 500) {
+        errorMessage = '서버 오류가 발생했습니다. 잠시 후 다시 시도해주세요.'
+      } else if (err.message) {
+        errorMessage = `오류: ${err.message}`
+      }
+      
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }
