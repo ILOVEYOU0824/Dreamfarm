@@ -95,7 +95,7 @@ export default function Dashboard() {
         setCurrentPage(0)
         
         // 학생은 자동 선택하지 않음 (사용자가 카드를 클릭할 때만 선택)
-        // 모든 학생의 기록수도 미리 로드하지 않음 (성능 최적화)
+        // 모든 학생의 기록수는 useEffect에서 로드 (함수 선언 순서 문제 방지)
       }
     } catch (err) {
       console.error('학생 데이터 로드 실패:', err)
@@ -128,14 +128,15 @@ export default function Dashboard() {
     setInitialLoading(false)
   }, [])
   
-  // 학생 목록이 로드되면 모든 학생의 기록수 미리 로드
+  // 학생 목록이 로드되면 모든 학생의 기록수 즉시 로드
   useEffect(() => {
     if (students.length > 0 && Object.keys(studentRecordCounts).length === 0) {
       console.log('[대시보드] 초기 로드: 모든 학생 기록수 로드 시작')
       const studentIds = students.map(s => s.id)
       loadAllStudentRecordCounts(studentIds)
     }
-  }, [students])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students]) // studentRecordCounts는 의존성에서 제외 (무한 루프 방지)
 
   // 페이지 포커스 시 학생 목록 갱신 (학생 추가/업로드 후 자동 반영)
   useEffect(() => {
@@ -544,7 +545,7 @@ export default function Dashboard() {
   }
 
   // 모든 학생의 기록수 로드 함수 (최적화: 한 번의 API 호출)
-  async function loadAllStudentRecordCounts(studentIds) {
+  const loadAllStudentRecordCounts = useCallback(async (studentIds) => {
     if (!studentIds || studentIds.length === 0) return
     
     try {
@@ -574,7 +575,7 @@ export default function Dashboard() {
         return updated
       })
     }
-  }
+  }, [])
 
   // 학생별 대시보드 데이터 로드 (감정 키워드, 활동 유형, 활동별 능력 등)
   useEffect(() => {
@@ -605,6 +606,12 @@ export default function Dashboard() {
       }
       
       try {
+        // 이미 로딩 중이면 중복 요청 방지
+        if (isDataLoading && !initialLoading) {
+          console.log('[대시보드] 이미 로딩 중이므로 요청 스킵')
+          return
+        }
+        
         // 초기 로드가 완료된 후에는 로딩 화면을 표시하지 않음 (데이터만 업데이트)
         // initialLoading이 false가 된 후에는 다시 true로 설정하지 않음
         if (!initialLoading) {
@@ -688,18 +695,30 @@ export default function Dashboard() {
         // 2. 메트릭 업데이트 (총 기록수 등)
         if (res.metrics) {
           setMetrics(res.metrics)
-          // 선택된 학생의 기록수만 업데이트
-          setStudentRecordCounts(prev => ({
-            ...prev,
-            [selectedStudentId]: res.metrics.recordCount || 0
-          }))
+          // 기록수는 이미 초기 로드에서 가져왔으므로, 없을 때만 업데이트
+          setStudentRecordCounts(prev => {
+            // 이미 기록수가 있으면 업데이트하지 않음 (초기 로드에서 가져온 값 유지)
+            if (prev[selectedStudentId] !== undefined) {
+              return prev
+            }
+            // 기록수가 없을 때만 업데이트
+            return {
+              ...prev,
+              [selectedStudentId]: res.metrics.recordCount || 0
+            }
+          })
           console.log('[대시보드] 메트릭 업데이트:', res.metrics)
         } else {
-          // 데이터가 없으면 기록수 0으로 설정
-          setStudentRecordCounts(prev => ({
-            ...prev,
-            [selectedStudentId]: 0
-          }))
+          // 데이터가 없으면 기록수 0으로 설정 (없을 때만)
+          setStudentRecordCounts(prev => {
+            if (prev[selectedStudentId] !== undefined) {
+              return prev
+            }
+            return {
+              ...prev,
+              [selectedStudentId]: 0
+            }
+          })
         }
         
         // 3. 활동 시계열 데이터 업데이트
@@ -841,7 +860,7 @@ export default function Dashboard() {
         // 6-1. 활동별 감정 분석 AI 코멘트 생성 (지연 로드 - 비동기로 처리)
         // AI 기능은 별도로 처리하여 초기 로딩을 방해하지 않음
         if (updatedActivityEmotionData.length > 0 && selectedStudentId) {
-          // AI 호출을 비동기로 처리 (데이터 표시를 막지 않음)
+          // AI 호출을 비동기로 처리 (데이터 표시를 막지 않음) - 더 긴 지연으로 UI 먼저 렌더링
           setTimeout(async () => {
             try {
               const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
@@ -884,7 +903,7 @@ export default function Dashboard() {
               console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
               setActivityEmotionAiComment('')
             }
-          }, 100) // 100ms 지연하여 UI가 먼저 렌더링되도록
+          }, 500) // 500ms 지연하여 UI가 먼저 렌더링되도록
         } else {
           setActivityEmotionAiComment('')
         }
