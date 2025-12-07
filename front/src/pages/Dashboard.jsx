@@ -139,15 +139,29 @@ export default function Dashboard() {
   }, [students]) // studentRecordCounts는 의존성에서 제외 (무한 루프 방지)
 
   // 페이지 포커스 시 학생 목록 갱신 (학생 추가/업로드 후 자동 반영)
+  // 디바운싱 적용하여 너무 자주 호출되지 않도록
   useEffect(() => {
+    let timeoutId = null
+    
     const handleFocus = () => {
-      console.log('[대시보드] 페이지 포커스 감지, 학생 목록 갱신')
-      loadStudents()
+      // 이미 타이머가 있으면 취소
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+      
+      // 1초 후에 실행 (디바운싱)
+      timeoutId = setTimeout(() => {
+        console.log('[대시보드] 페이지 포커스 감지, 학생 목록 갱신')
+        loadStudents()
+      }, 1000)
     }
 
     window.addEventListener('focus', handleFocus)
     return () => {
       window.removeEventListener('focus', handleFocus)
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
     }
   }, [loadStudents])
 
@@ -555,11 +569,17 @@ export default function Dashboard() {
       const recordCounts = await apiFetch('/api/students/record-counts')
       
       // 결과를 state에 반영
+      console.log('[대시보드] 받은 기록수 데이터:', recordCounts)
+      console.log('[대시보드] 학생 ID 목록:', studentIds)
+      
       setStudentRecordCounts(prev => {
         const updated = { ...prev }
         studentIds.forEach(studentId => {
-          updated[studentId] = recordCounts[studentId] || 0
+          const count = recordCounts[studentId] || 0
+          updated[studentId] = count
+          console.log(`[대시보드] 학생 ${studentId} 기록수: ${count}`)
         })
+        console.log('[대시보드] 업데이트된 기록수:', updated)
         return updated
       })
       
@@ -695,25 +715,20 @@ export default function Dashboard() {
         // 2. 메트릭 업데이트 (총 기록수 등)
         if (res.metrics) {
           setMetrics(res.metrics)
-          // 기록수는 이미 초기 로드에서 가져왔으므로, 없을 때만 업데이트
+          // 학생 클릭 시에도 기록수 업데이트 (메트릭에서 가져온 값이 더 정확할 수 있음)
           setStudentRecordCounts(prev => {
-            // 이미 기록수가 있으면 업데이트하지 않음 (초기 로드에서 가져온 값 유지)
-            if (prev[selectedStudentId] !== undefined) {
-              return prev
-            }
-            // 기록수가 없을 때만 업데이트
+            const newCount = res.metrics.recordCount || 0
+            console.log(`[대시보드] 학생 ${selectedStudentId} 기록수 업데이트: ${prev[selectedStudentId]} -> ${newCount}`)
             return {
               ...prev,
-              [selectedStudentId]: res.metrics.recordCount || 0
+              [selectedStudentId]: newCount
             }
           })
           console.log('[대시보드] 메트릭 업데이트:', res.metrics)
         } else {
-          // 데이터가 없으면 기록수 0으로 설정 (없을 때만)
+          // 데이터가 없으면 기록수 0으로 설정
           setStudentRecordCounts(prev => {
-            if (prev[selectedStudentId] !== undefined) {
-              return prev
-            }
+            console.log(`[대시보드] 학생 ${selectedStudentId} 기록수 없음, 0으로 설정`)
             return {
               ...prev,
               [selectedStudentId]: 0
@@ -1223,9 +1238,14 @@ export default function Dashboard() {
                         className="student-record-count-number"
                         style={{ color: studentColor }}
                       >
-                        {studentRecordCounts[studentId] !== undefined 
-                          ? studentRecordCounts[studentId] 
-                          : '-'}
+                        {(() => {
+                          const count = studentRecordCounts[studentId]
+                          // 디버깅: 기록수 확인
+                          if (count === undefined) {
+                            console.log(`[대시보드] 학생 ${studentId} 기록수 없음, 전체 기록수:`, studentRecordCounts)
+                          }
+                          return count !== undefined ? count : '-'
+                        })()}
                       </div>
                       <div className="student-record-count-label">총 기록수</div>
                     </div>
