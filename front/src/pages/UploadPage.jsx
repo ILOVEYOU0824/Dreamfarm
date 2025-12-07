@@ -861,6 +861,20 @@ export default function UploadPage() {
             return u
           })
         } else {
+          // 삭제된 파일 목록 확인 (삭제된 파일은 추가하지 않음)
+          let deletedIds = []
+          try {
+            deletedIds = JSON.parse(localStorage.getItem('deletedUploadIds') || '[]')
+          } catch (storageErr) {
+            console.warn('localStorage 읽기 실패:', storageErr)
+          }
+          
+          // 삭제된 파일이면 추가하지 않음
+          if (deletedIds.includes(uploadId)) {
+            console.log(`[상세] 업로드 ${uploadId}는 삭제된 파일이므로 목록에 추가하지 않습니다.`)
+            return prev
+          }
+          
           // 기존 항목이 없으면 새로 추가 (분석 완료 후 목록에 추가)
           const newUpload = {
             id: uploadId,
@@ -888,11 +902,14 @@ export default function UploadPage() {
               save: uploadRes.status === 'success' ? 100 : 0
             }
           }
-          return [newUpload, ...prev]
+          console.log(`[상세] 새 업로드 항목 추가:`, newUpload.id, newUpload.file_name, newUpload.status)
+          const updatedList = [newUpload, ...prev]
+          console.log(`[상세] 업로드 목록 업데이트 완료. 현재 목록 개수:`, updatedList.length)
+          const successCount = updatedList.filter(u => u.status === 'success').length
+          console.log(`[상세] success 상태 파일 개수:`, successCount)
+          return updatedList
         }
       })
-      
-      console.log(`[상세] 업로드 목록 업데이트 완료`)
     } catch (err) {
       console.error(`[상세] 업로드 ${uploadId} 상세 정보 가져오기 실패:`, err)
       console.error(`[상세] 에러 상세:`, err.stack || err.message)
