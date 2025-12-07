@@ -664,6 +664,79 @@ export default function Dashboard() {
     }
   }, [])
 
+  // 활동별 감정 분석 AI 요약 생성 함수 (버튼 클릭 시 호출)
+  const handleGenerateAiSummary = useCallback(async () => {
+    if (!selectedStudentId || activityEmotionData.length === 0) {
+      return
+    }
+    
+    // 이전 AI 분석 취소
+    if (aiAbortControllerRef.current) {
+      aiAbortControllerRef.current.abort()
+    }
+    
+    // 새로운 AI AbortController 생성
+    const aiAbortController = new AbortController()
+    aiAbortControllerRef.current = aiAbortController
+    
+    try {
+      setIsAiAnalyzing(true)
+      const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
+      const studentName = currentStudent ? (currentStudent.nickname || currentStudent.name) : '학생'
+      
+      // 활동별 감정 데이터를 AI에 전달
+      const activityEmotionSummary = activityEmotionData
+        .filter(activity => activity.emotions.length > 0)
+        .map(activity => ({
+          type: activity.label,
+          emotions: activity.emotions.map(e => `${e.keyword}(${e.count}회)`).join(', ')
+        }))
+      
+      if (activityEmotionSummary.length > 0) {
+        const aiPrompt = `${studentName} 학생의 활동별 감정 분석 결과입니다:\n\n${activityEmotionSummary.map(a => `- ${a.type}: ${a.emotions}`).join('\n')}\n\n위 데이터를 바탕으로 ${studentName} 학생의 감정 상태에 대한 전문적인 코멘트를 2-3문장으로 작성해주세요.`
+        
+        const aiRes = await fetchWithAbort('/api/ai/chat', aiAbortController.signal, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: aiPrompt,
+            context: {
+              selectedStudentId,
+              selectedStudentName: studentName,
+              startDate,
+              endDate
+            }
+          })
+        })
+        
+        // 요청이 취소되었는지 확인
+        if (aiAbortController.signal.aborted) {
+          return
+        }
+        
+        if (aiRes && aiRes.message) {
+          setActivityEmotionAiComment(aiRes.message)
+        } else {
+          setActivityEmotionAiComment('')
+        }
+      } else {
+        setActivityEmotionAiComment('')
+      }
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        console.log('[대시보드] AI 분석 취소됨')
+        return
+      }
+      console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
+      setActivityEmotionAiComment('')
+      alert('AI 분석 생성에 실패했습니다. 다시 시도해주세요.')
+    } finally {
+      if (!aiAbortController.signal.aborted) {
+        setIsAiAnalyzing(false)
+      }
+    }
+  }, [selectedStudentId, activityEmotionData, students, startDate, endDate, fetchWithAbort])
+
   // 학생별 대시보드 데이터 로드 (감정 키워드, 활동 유형, 활동별 능력 등)
   useEffect(() => {
     async function loadStudentDashboardData() {
@@ -716,7 +789,8 @@ export default function Dashboard() {
         console.log('[대시보드] 학생별 데이터 로드 시작:', selectedStudentId)
         
         // 기간 필터 적용 (startDate, endDate가 있으면 사용)
-        let apiUrl = `/api/dashboard?studentId=${selectedStudentId}`
+        // skipAiAnalysis=true로 설정하여 빠른 응답 (AI 분석은 나중에 별도 처리)
+        let apiUrl = `/api/dashboard?studentId=${selectedStudentId}&skipAiAnalysis=true`
         if (startDate) {
           apiUrl += `&from=${startDate}`
         }
@@ -937,86 +1011,9 @@ export default function Dashboard() {
         
         setActivityEmotionData(updatedActivityEmotionData)
         
-        // ===== AI 분석만 지연 처리 =====
-        
-        // 7. 활동별 감정 분석 AI 코멘트 생성 (AI만 지연 로드)
-        if (updatedActivityEmotionData.length > 0 && selectedStudentId) {
-          // 이전 AI 분석 취소
-          if (aiAbortControllerRef.current) {
-            aiAbortControllerRef.current.abort()
-          }
-          
-          // 새로운 AI AbortController 생성
-          const aiAbortController = new AbortController()
-          aiAbortControllerRef.current = aiAbortController
-          
-          // AI 호출을 비동기로 처리 (데이터 표시를 막지 않음)
-          setTimeout(async () => {
-            // 학생이 변경되었는지 확인
-            if (aiAbortController.signal.aborted) {
-              return
-            }
-            
-            try {
-              setIsAiAnalyzing(true)
-              const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
-              const studentName = currentStudent ? (currentStudent.nickname || currentStudent.name) : '학생'
-              
-              // 활동별 감정 데이터를 AI에 전달
-              const activityEmotionSummary = updatedActivityEmotionData
-                .filter(activity => activity.emotions.length > 0)
-                .map(activity => ({
-                  type: activity.label,
-                  emotions: activity.emotions.map(e => `${e.keyword}(${e.count}회)`).join(', ')
-                }))
-              
-              if (activityEmotionSummary.length > 0) {
-                const aiPrompt = `${studentName} 학생의 활동별 감정 분석 결과입니다:\n\n${activityEmotionSummary.map(a => `- ${a.type}: ${a.emotions}`).join('\n')}\n\n위 데이터를 바탕으로 ${studentName} 학생의 감정 상태에 대한 전문적인 코멘트를 2-3문장으로 작성해주세요.`
-                
-                const aiRes = await fetchWithAbort('/api/ai/chat', aiAbortController.signal, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    message: aiPrompt,
-                    context: {
-                      selectedStudentId,
-                      selectedStudentName: studentName,
-                      startDate,
-                      endDate
-                    }
-                  })
-                })
-                
-                // 요청이 취소되었는지 확인
-                if (aiAbortController.signal.aborted) {
-                  return
-                }
-                
-                if (aiRes && aiRes.message) {
-                  setActivityEmotionAiComment(aiRes.message)
-                } else {
-                  setActivityEmotionAiComment('')
-                }
-              } else {
-                setActivityEmotionAiComment('')
-              }
-            } catch (err) {
-              if (err.name === 'AbortError') {
-                console.log('[대시보드] AI 분석 취소됨')
-                return
-              }
-              console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
-              setActivityEmotionAiComment('')
-            } finally {
-              if (!aiAbortController.signal.aborted) {
-                setIsAiAnalyzing(false)
-              }
-            }
-          }, 500) // AI만 500ms 지연하여 DB 데이터 먼저 표시
-        } else {
-          setActivityEmotionAiComment('')
-          setIsAiAnalyzing(false)
-        }
+        // AI 분석은 버튼 클릭 시에만 실행 (자동 실행 제거)
+        setActivityEmotionAiComment('')
+        setIsAiAnalyzing(false)
         
         // 6. 활동별 능력 분석 업데이트 (activityAbilityList)
         if (Array.isArray(res.activityAbilityList) && res.activityAbilityList.length > 0) {
@@ -1827,6 +1824,15 @@ export default function Dashboard() {
               <div className="activity-analysis-summary-section">
                 <div className="activity-analysis-summary-header">
                   <h3>활동별 감정 분석</h3>
+                  {!isAiAnalyzing && !activityEmotionAiComment && (
+                    <button 
+                      className="ai-summary-button"
+                      onClick={handleGenerateAiSummary}
+                      disabled={!selectedStudentId || activityEmotionData.length === 0}
+                    >
+                      AI 요약 분석
+                    </button>
+                  )}
                 </div>
                 <div className="activity-analysis-summary-content">
                   {isAiAnalyzing ? (
@@ -1835,7 +1841,16 @@ export default function Dashboard() {
                       <p>AI 분석 중입니다...</p>
                     </div>
                   ) : activityEmotionAiComment ? (
-                    <p>{activityEmotionAiComment}</p>
+                    <div>
+                      <p>{activityEmotionAiComment}</p>
+                      <button 
+                        className="ai-summary-button ai-summary-button-secondary"
+                        onClick={handleGenerateAiSummary}
+                        style={{ marginTop: '12px' }}
+                      >
+                        다시 분석
+                      </button>
+                    </div>
                   ) : (
                     <p dangerouslySetInnerHTML={{ __html: generateActivityEmotionSummary() }}></p>
                   )}

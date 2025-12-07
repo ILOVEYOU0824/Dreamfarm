@@ -607,6 +607,7 @@
 .activity-analysis-summary-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
 }
@@ -646,6 +647,46 @@
   margin: 0;
   font-size: 14px;
   font-weight: 500;
+}
+
+/* AI 요약 분석 버튼 */
+.ai-summary-button {
+  padding: 8px 16px;
+  background: #f27904;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.ai-summary-button:hover:not(:disabled) {
+  background: #e06d03;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(242, 121, 4, 0.3);
+}
+
+.ai-summary-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.ai-summary-button:disabled {
+  background: #d1d5db;
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.ai-summary-button-secondary {
+  background: #6b7280;
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.ai-summary-button-secondary:hover:not(:disabled) {
+  background: #4b5563;
 }
 
 .activity-analysis-summary-icon {
