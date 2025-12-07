@@ -1208,10 +1208,10 @@ export default function UploadPage() {
   }
   
   async function handleDeleteUpload(uploadId) {
-    if (!window.confirm('삭제하시겠습니까?')) return
+    if (!window.confirm('이 파일을 영구적으로 삭제하시겠습니까?\n\n삭제하면 복구할 수 없습니다.')) return
     
     try {
-      // 백엔드에서 삭제
+      // 백엔드에서 영구 삭제 (ingest_uploads와 관련 log_entries 모두 삭제)
       await apiFetch(`/api/uploads/${uploadId}`, {
         method: 'DELETE'
       })
@@ -1229,6 +1229,11 @@ export default function UploadPage() {
       
       // 로컬 상태에서도 삭제
       updateUploads(prev => prev.filter(u => u.id !== uploadId))
+      
+      // 저장된 파일 목록도 갱신 (삭제된 파일이 저장된 파일 목록에 있을 수 있음)
+      fetchSavedFiles()
+      
+      alert('파일이 영구적으로 삭제되었습니다.')
     } catch (err) {
       console.error('업로드 삭제 실패:', err)
       alert(`삭제 실패: ${err.message || '알 수 없는 오류'}`)
