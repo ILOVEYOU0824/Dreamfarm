@@ -182,78 +182,12 @@ export default function Report() {
     setLoading(true)
     setError(null)
     try {
-      // 백엔드 없이 로컬 상태만 사용
-      // 임시 리포트 데이터 생성
-      const tempReport = {
-        id: 'temp-report-001',
-        templateCode: 'ai_markdown',
-        templateName: '전체 리포트',
-        studentName: '김철수',
-        summary: '2024년 3월 활동 종합 리포트',
-        createdAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        status: 'completed',
-        mdDownloadPath: null,
-        raw: {
-          id: 'temp-report-001',
-          params: {
-            title: '김철수 2024-03-15 ~ 2024-03-25 전체 리포트',
-            from: '2024-03-15',
-            to: '2024-03-25',
-            category_code: 'full',
-            category_label: '전체 리포트',
-            purpose: 'parent',
-            student_id: 's1',
-            student_name: '김철수',
-            markdown: `# 김철수 학생 활동 리포트
-
-## 📅 분석 기간
-**2024년 3월 15일 ~ 2024년 3월 25일**
-
-## 👤 학생 정보
-- **이름**: 김철수
-- **리포트 용도**: 학부모 상담용
-
-## 🌱 활동 요약
-
-### 주요 활동
-이 기간 동안 김철수 학생은 농장 활동에 매우 적극적으로 참여했습니다. 특히 토마토 파종과 식물 관찰 활동에서 뛰어난 집중력을 보였습니다.
-
-### 활동 유형별 분석
-1. **파종 활동** (3월 15일)
-   - 토마토 씨앗을 화분에 심는 활동
-   - 소요 시간: 60분
-   - 감정 키워드: 기쁜, 신나는
-   - 학생들이 매우 적극적으로 참여했으며, 특히 김철수 학생은 집중력이 뛰어났습니다.
-
-2. **관찰 활동** (3월 20일 ~ 3월 25일)
-   - 싹이 나오는 과정을 꾸준히 관찰
-   - 소요 시간: 30분
-   - 감정 키워드: 뿌듯한, 기대에 부푼
-   - 매일 아침마다 식물의 변화를 확인하며 성장 과정을 관찰했습니다.
-
-## 💭 감정 변화 분석
-이 기간 동안 학생은 주로 긍정적인 감정을 보였습니다:
-- **기쁨**: 씨앗 심기 활동에서 큰 즐거움을 느꼈습니다.
-- **뿌듯함**: 싹이 나오는 것을 확인했을 때 성취감을 느꼈습니다.
-- **기대감**: 식물의 성장을 기대하며 관찰 활동에 적극적으로 참여했습니다.
-
-## 📈 종합 평가
-김철수 학생은 이 기간 동안 농장 활동에 매우 적극적으로 참여했으며, 특히 집중력과 관찰력이 뛰어났습니다. 식물의 성장 과정을 꾸준히 관찰하며 자연에 대한 관심과 배려심을 보였습니다.
-
-## 💡 제안사항
-- 앞으로도 다양한 농장 활동에 참여하여 자연과의 교감을 더욱 깊게 할 수 있도록 격려해주시기 바랍니다.
-- 식물 관찰 활동에서 보인 집중력을 다른 학습 활동에도 적용할 수 있도록 도와주시면 좋겠습니다.
-`
-          }
-        },
-        purposeLabel: '학부모 상담용',
-        analysisFrom: '2024-03-15',
-        analysisTo: '2024-03-25'
-      }
-
-      // 임시 리포트를 정규화된 형식으로 변환
-      const normalized = normalizeReportRuns([tempReport])
+      // 백엔드 API에서 리포트 목록 가져오기
+      const data = await apiFetch('/api/report-runs')
+      const items = Array.isArray(data?.items) ? data.items : (Array.isArray(data) ? data : [])
+      
+      // 리포트를 정규화된 형식으로 변환
+      const normalized = normalizeReportRuns(items)
       
       // 최신순 정렬
       normalized.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
@@ -261,6 +195,7 @@ export default function Report() {
     } catch (err) {
       console.error(err)
       setError('리포트 목록을 불러오지 못했습니다.')
+      setReports([]) // 에러 시 빈 배열로 설정
     } finally {
       setLoading(false)
     }
@@ -313,6 +248,147 @@ export default function Report() {
       console.error(err)
       alert('리포트 삭제 중 오류가 발생했습니다.')
     }
+  }
+
+  // 🔹 PDF 리포트 다운로드
+  async function handleDownloadPdf(report) {
+    try {
+      // 마크다운 가져오기
+      let markdown = '';
+      const markdownFromParams = report?.raw?.params?.markdown;
+      
+      if (markdownFromParams && typeof markdownFromParams === 'string') {
+        markdown = markdownFromParams;
+      } else {
+        // 백엔드에서 마크다운 가져오기
+        const path = report.mdDownloadPath;
+        if (!path) {
+          alert('다운로드할 리포트 내용이 없습니다.');
+          return;
+        }
+        
+        const API_BASE = (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE || '/api').replace(/\/+$/, '');
+        const url = path.startsWith('http') ? path : `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+        
+        const res = await fetch(url);
+        if (!res.ok) {
+          throw new Error('마크다운을 가져올 수 없습니다.');
+        }
+        markdown = await res.text();
+      }
+
+      // 마크다운을 HTML로 변환
+      const html = markdownToHtml(markdown);
+      
+      // 새 창에서 HTML 열기
+      const printWindow = window.open('', '_blank');
+      if (!printWindow) {
+        alert('팝업이 차단되었습니다. 팝업을 허용해주세요.');
+        return;
+      }
+      
+      printWindow.document.write(html);
+      printWindow.document.close();
+      
+      // PDF로 인쇄 (브라우저의 인쇄 기능 사용)
+      setTimeout(() => {
+        printWindow.print();
+        // 인쇄 후 창 닫기 (선택사항)
+        // printWindow.close();
+      }, 250);
+      
+    } catch (err) {
+      console.error('PDF 다운로드 오류:', err);
+      alert(`PDF 다운로드 중 오류가 발생했습니다.\n(${err.message})`);
+    }
+  }
+
+  // 마크다운을 HTML로 변환하는 함수
+  function markdownToHtml(markdown) {
+    let html = markdown
+      // 제목 변환
+      .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+      .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+      .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+      // 강조
+      .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+      .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+      // 리스트
+      .replace(/^\- (.*$)/gim, '<li>$1</li>')
+      .replace(/^(\d+)\. (.*$)/gim, '<li>$2</li>')
+      // 줄바꿈
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/\n/g, '<br>');
+    
+    // 리스트 항목을 ul로 감싸기
+    html = html.replace(/(<li>.*?<\/li>)/gim, '<ul>$1</ul>');
+    
+    // 문단 태그 추가
+    html = '<p>' + html + '</p>';
+    
+    const studentName = report.studentName || '학생';
+    const dateStr = report.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+    
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${studentName} 리포트</title>
+  <style>
+    @media print {
+      @page { margin: 2cm; }
+      body { margin: 0; }
+    }
+    body { 
+      font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; 
+      padding: 40px; 
+      line-height: 1.8; 
+      color: #333;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 { 
+      color: #333; 
+      border-bottom: 3px solid #333; 
+      padding-bottom: 10px; 
+      margin-bottom: 20px;
+      font-size: 28px;
+    }
+    h2 { 
+      color: #555; 
+      margin-top: 30px; 
+      margin-bottom: 15px;
+      font-size: 22px;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+    }
+    h3 { 
+      color: #777; 
+      margin-top: 20px; 
+      margin-bottom: 10px;
+      font-size: 18px;
+    }
+    ul { 
+      margin: 10px 0; 
+      padding-left: 30px; 
+    }
+    li { 
+      margin: 5px 0; 
+    }
+    strong { 
+      color: #333; 
+      font-weight: 600;
+    }
+    p {
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+${html}
+</body>
+</html>`;
   }
 
   // 🔹 md 리포트 다운로드 (핵심 수정됨)
@@ -692,7 +768,7 @@ export default function Report() {
                           <button 
                             type="button" 
                             className="btn secondary-outline report-btn" 
-                            onClick={() => handleDownloadMd(report)}
+                            onClick={() => handleDownloadPdf(report)}
                             style={{
                               border: '1px solid var(--accent-green)',
                               color: '#fffdf8',
@@ -715,7 +791,7 @@ export default function Report() {
                               e.target.style.transform = 'translateY(0)'
                             }}
                           >
-                            다운로드
+                            PDF 다운로드
                           </button>
                           <button 
                             type="button" 
