@@ -613,6 +613,62 @@ app.get('/api/students', async (req, res) => {
   });
 });
 
+// 모든 학생의 기록수 조회 (대시보드 최적화용)
+// GET /api/students/record-counts
+app.get('/api/students/record-counts', async (req, res) => {
+  try {
+    // 모든 학생 목록 가져오기
+    const { data: students, error: studentsError } = await supabase
+      .from('students')
+      .select('id')
+      .eq('status', '재학중')
+      .or('status.is.null,status.eq.재학');
+
+    if (studentsError) {
+      console.error('[기록수] 학생 목록 조회 에러:', studentsError);
+      return res.status(500).json({ message: 'DB Error', error: studentsError });
+    }
+
+    if (!students || students.length === 0) {
+      return res.json({});
+    }
+
+    const studentIds = students.map(s => s.id);
+
+    // 학생별 기록수 집계 (초기값 0으로 설정)
+    const recordCounts = {};
+    studentIds.forEach(studentId => {
+      recordCounts[studentId] = 0;
+    });
+
+    // 모든 학생의 기록수를 한 번에 조회하여 집계
+    const { data: logs, error: logsError } = await supabase
+      .from('log_entries')
+      .select('student_id')
+      .in('student_id', studentIds)
+      .eq('status', 'success');
+
+    if (logsError) {
+      console.error('[기록수] log_entries 조회 에러:', logsError);
+      return res.status(500).json({ message: 'DB Error', error: logsError });
+    }
+
+    // 학생별로 기록수 집계
+    if (logs && Array.isArray(logs)) {
+      logs.forEach(log => {
+        if (log.student_id && recordCounts[log.student_id] !== undefined) {
+          recordCounts[log.student_id] = (recordCounts[log.student_id] || 0) + 1;
+        }
+      });
+    }
+
+    res.json(recordCounts);
+  } catch (e) {
+    console.error('/api/students/record-counts 에러:', e);
+    return res.status(500).json({ message: 'Server Error', error: e.toString() });
+  }
+});
+
 // 학생 한 명 상세 조회
 // GET /api/students/:id
 app.get('/api/students/:id', async (req, res) => {
