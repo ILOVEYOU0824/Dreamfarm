@@ -3,7 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const { supabase } = require('./supabaseClient'); // 공용 클라이언트 불러오기
 const cors = require('cors');
-const { PDF_TXT_EXTRACTION_PROMPT } = require('./prompts');
+const { PDF_TXT_EXTRACTION_PROMPT, GET_REPORT_PROMPT } = require('./prompts');
 
 // 🔹 업로드 + AI 분석용 추가 의존성
 const multer = require('multer');
@@ -422,6 +422,97 @@ ${activityData.slice(0, 10).map((log, idx) =>
 // 일반 헬스체크: 서버 살아있음 확인
 app.get('/api/health', (req, res) => {
   res.json({ ok: true });
+});
+
+// POST /ai/generate-report → { markdown: string, model: string }
+app.post(['/ai/generate-report', '/api/ai/generate-report'], async (req, res) => {
+  try {
+    const {
+      student_profile,
+      date_range,
+      summary_stats,
+      activity_samples,
+      report_options = {}
+    } = req.body || {};
+
+    if (!GEMINI_API_KEY || !genAI) {
+      return res.status(500).json({
+        message: 'AI 서비스가 설정되지 않았습니다.',
+        error: 'Gemini API not configured'
+      });
+    }
+
+    const category = report_options.category_code || report_options.category_label || 'full';
+    const purpose = report_options.purpose || '교사가 참고하기 좋은 중립적인 톤';
+    const tone = report_options.tone || '중립적인 톤';
+
+    // 리포트 프롬프트 생성
+    const reportPrompt = GET_REPORT_PROMPT(category, purpose, tone);
+
+    // 입력 데이터를 JSON 형식으로 준비
+    const inputData = {
+      student_profile: student_profile || {},
+      date_range: date_range || {},
+      summary_stats: summary_stats || {},
+      activity_samples: activity_samples || []
+    };
+
+    // 프롬프트에 데이터 삽입
+    const fullPrompt = reportPrompt.replace('{input_json}', JSON.stringify(inputData, null, 2));
+
+    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+    // 503 에러 재시도 로직 포함
+    const maxRetries = 3;
+    let result;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        result = await model.generateContent({
+          contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 4000,
+          },
+        });
+        break; // 성공 시 루프 종료
+      } catch (apiErr) {
+        lastError = apiErr;
+        const errorMessage = apiErr.message || apiErr.toString() || '';
+        const is503Error = errorMessage.includes('503') ||
+          errorMessage.includes('Service Unavailable') ||
+          errorMessage.includes('overloaded');
+
+        if (is503Error && attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          console.warn(`[리포트 생성] 503 에러 (시도 ${attempt}/${maxRetries}), ${delay}ms 후 재시도...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        throw apiErr;
+      }
+    }
+
+    if (!result) {
+      throw lastError || new Error('리포트 생성 실패');
+    }
+
+    const response = result.response;
+    const markdown = response.text();
+
+    return res.json({
+      ok: true,
+      markdown: markdown,
+      model: GEMINI_MODEL
+    });
+  } catch (e) {
+    console.error('POST /ai/generate-report 에러:', e);
+    return res.status(500).json({
+      message: '리포트 생성 실패',
+      error: e.toString()
+    });
+  }
 });
 
 // 🔹 로그인 API (POST /auth/login)
