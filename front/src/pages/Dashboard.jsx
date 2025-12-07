@@ -793,235 +793,230 @@ export default function Dashboard() {
           setEmotionKeywords([])
         }
         
-        // ===== 복잡한 데이터 처리는 나중에 (점진적 업데이트) =====
+        // ===== DB 데이터 즉시 처리 (AI 제외) =====
         
-        // 4. 활동 상세 내역 업데이트 (다음 틱에서 처리)
-        setTimeout(() => {
-          if (Array.isArray(res.activityDetails)) {
-            const formattedDetails = res.activityDetails.map(item => ({
-              id: item.id || `detail_${Date.now()}_${Math.random()}`,
-              date: item.date || '',
-              activity: item.activity || item.category || '기록 있음',
-              type: item.category || '기타',
-              activityType: '개별활동',
-              studentComment: item.note || '',
-              studentName: studentNamesMap[selectedStudentId] || '학생',
-              studentId: selectedStudentId
-            }))
-            setActivityDetails(formattedDetails)
-            
-            // 기록이 있는 날짜 목록 추출
-            const datesSet = new Set()
-            formattedDetails.forEach(detail => {
-              if (detail.date) {
-                const dateStr = detail.date.includes('T') 
-                  ? detail.date.split('T')[0] 
-                  : detail.date.split(' ')[0]
+        // 4. 활동 상세 내역 업데이트 (즉시 처리)
+        if (Array.isArray(res.activityDetails)) {
+          const formattedDetails = res.activityDetails.map(item => ({
+            id: item.id || `detail_${Date.now()}_${Math.random()}`,
+            date: item.date || '',
+            activity: item.activity || item.category || '기록 있음',
+            type: item.category || '기타',
+            activityType: '개별활동',
+            studentComment: item.note || '',
+            studentName: studentNamesMap[selectedStudentId] || '학생',
+            studentId: selectedStudentId
+          }))
+          setActivityDetails(formattedDetails)
+          
+          // 기록이 있는 날짜 목록 추출
+          const datesSet = new Set()
+          formattedDetails.forEach(detail => {
+            if (detail.date) {
+              const dateStr = detail.date.includes('T') 
+                ? detail.date.split('T')[0] 
+                : detail.date.split(' ')[0]
+              if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+                datesSet.add(dateStr)
+              }
+            }
+          })
+          if (Array.isArray(logs) && logs.length > 0) {
+            logs.forEach(log => {
+              if (log.log_date) {
+                const dateStr = log.log_date.includes('T') 
+                  ? log.log_date.split('T')[0] 
+                  : log.log_date.split(' ')[0]
                 if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
                   datesSet.add(dateStr)
                 }
               }
             })
-            if (Array.isArray(logs) && logs.length > 0) {
-              logs.forEach(log => {
-                if (log.log_date) {
-                  const dateStr = log.log_date.includes('T') 
-                    ? log.log_date.split('T')[0] 
-                    : log.log_date.split(' ')[0]
-                  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-                    datesSet.add(dateStr)
-                  }
-                }
-              })
-            }
-            setDatesWithRecords(datesSet)
-          } else {
-            setDatesWithRecords(new Set())
           }
-        }, 0)
+          setDatesWithRecords(datesSet)
+        } else {
+          setDatesWithRecords(new Set())
+        }
         
-        // 5. 개별분석용 선택한 감정 키워드 추출 (다음 틱에서 처리)
-        setTimeout(() => {
-          if (Array.isArray(logs) && logs.length > 0) {
-            const selectedEmotions = new Map()
-            logs.forEach(log => {
-              if (log.emotion_tag) {
-                const emotionTag = String(log.emotion_tag).trim()
-                if (emotionTag && emotionTag !== '기타') {
-                  const emotions = emotionTag.split(/[,，\s]+/).filter(Boolean)
-                  emotions.forEach(emo => {
-                    const emoTrimmed = emo.trim()
-                    if (emoTrimmed && emoTrimmed !== '기타') {
-                      selectedEmotions.set(emoTrimmed, (selectedEmotions.get(emoTrimmed) || 0) + 1)
-                    }
-                  })
-                }
-              }
-            })
-            
-            const selectedEmotionKeywordsData = Array.from(selectedEmotions.entries())
-              .map(([keyword, count]) => ({ keyword, count }))
-              .sort((a, b) => b.count - a.count)
-            
-            setSelectedEmotionKeywords(selectedEmotionKeywordsData)
-          } else {
-            setSelectedEmotionKeywords([])
-          }
-        }, 0)
-        
-        // 6. 활동 유형별 통계 및 활동별 감정 키워드 빈도 (복잡한 계산은 나중에 처리)
-        setTimeout(() => {
-          // 6-1. 활동 유형별 통계 계산
-          const calculatedActivityTypeStats = calculateActivityTypeStats(logs)
-          setActivityTypeStats(calculatedActivityTypeStats)
-          
-          // 6-2. 활동별 감정 키워드 빈도 업데이트
-          const activityEmotionMap = {}
-          
-          if (Array.isArray(logs) && logs.length > 0) {
-            logs.forEach(log => {
-              const emotionTag = log.emotion_tag || ''
-              if (!emotionTag) return
-              
-              const activityTags = Array.isArray(log.activity_tags) ? log.activity_tags : []
-              
-              if (activityTags.length > 0) {
-                activityTags.forEach(activityName => {
-                  let activityType = 'other'
-                  const activityLower = String(activityName).toLowerCase()
-                  
-                  if (activityLower.includes('수확') || activityLower.includes('harvest')) {
-                    activityType = 'harvest'
-                  } else if (activityLower.includes('파종') || activityLower.includes('sowing') || activityLower.includes('심기')) {
-                    activityType = 'sow'
-                  } else if (activityLower.includes('관리') || activityLower.includes('manage') || activityLower.includes('물주')) {
-                    activityType = 'manage'
-                  } else if (activityLower.includes('관찰') || activityLower.includes('observe') || activityLower.includes('보기')) {
-                    activityType = 'observe'
+        // 5. 개별분석용 선택한 감정 키워드 추출 (즉시 처리)
+        if (Array.isArray(logs) && logs.length > 0) {
+          const selectedEmotions = new Map()
+          logs.forEach(log => {
+            if (log.emotion_tag) {
+              const emotionTag = String(log.emotion_tag).trim()
+              if (emotionTag && emotionTag !== '기타') {
+                const emotions = emotionTag.split(/[,，\s]+/).filter(Boolean)
+                emotions.forEach(emo => {
+                  const emoTrimmed = emo.trim()
+                  if (emoTrimmed && emoTrimmed !== '기타') {
+                    selectedEmotions.set(emoTrimmed, (selectedEmotions.get(emoTrimmed) || 0) + 1)
                   }
-                  
-                  if (!activityEmotionMap[activityType]) {
-                    activityEmotionMap[activityType] = {}
-                  }
-                  
-                  const emotions = String(emotionTag).split(/[,，\s]+/).filter(Boolean)
-                  emotions.forEach(emo => {
-                    const emoTrimmed = emo.trim()
-                    if (emoTrimmed && emoTrimmed !== '기타') {
-                      activityEmotionMap[activityType][emoTrimmed] = (activityEmotionMap[activityType][emoTrimmed] || 0) + 1
-                    }
-                  })
                 })
-              } else {
-                if (!activityEmotionMap['other']) {
-                  activityEmotionMap['other'] = {}
+              }
+            }
+          })
+          
+          const selectedEmotionKeywordsData = Array.from(selectedEmotions.entries())
+            .map(([keyword, count]) => ({ keyword, count }))
+            .sort((a, b) => b.count - a.count)
+          
+          setSelectedEmotionKeywords(selectedEmotionKeywordsData)
+        } else {
+          setSelectedEmotionKeywords([])
+        }
+        
+        // 6. 활동 유형별 통계 및 활동별 감정 키워드 빈도 (DB 데이터 - 즉시 처리)
+        // 6-1. 활동 유형별 통계 계산
+        const calculatedActivityTypeStats = calculateActivityTypeStats(logs)
+        setActivityTypeStats(calculatedActivityTypeStats)
+        
+        // 6-2. 활동별 감정 키워드 빈도 업데이트
+        const activityEmotionMap = {}
+        
+        if (Array.isArray(logs) && logs.length > 0) {
+          logs.forEach(log => {
+            const emotionTag = log.emotion_tag || ''
+            if (!emotionTag) return
+            
+            const activityTags = Array.isArray(log.activity_tags) ? log.activity_tags : []
+            
+            if (activityTags.length > 0) {
+              activityTags.forEach(activityName => {
+                let activityType = 'other'
+                const activityLower = String(activityName).toLowerCase()
+                
+                if (activityLower.includes('수확') || activityLower.includes('harvest')) {
+                  activityType = 'harvest'
+                } else if (activityLower.includes('파종') || activityLower.includes('sowing') || activityLower.includes('심기')) {
+                  activityType = 'sow'
+                } else if (activityLower.includes('관리') || activityLower.includes('manage') || activityLower.includes('물주')) {
+                  activityType = 'manage'
+                } else if (activityLower.includes('관찰') || activityLower.includes('observe') || activityLower.includes('보기')) {
+                  activityType = 'observe'
+                }
+                
+                if (!activityEmotionMap[activityType]) {
+                  activityEmotionMap[activityType] = {}
                 }
                 
                 const emotions = String(emotionTag).split(/[,，\s]+/).filter(Boolean)
                 emotions.forEach(emo => {
                   const emoTrimmed = emo.trim()
                   if (emoTrimmed && emoTrimmed !== '기타') {
-                    activityEmotionMap['other'][emoTrimmed] = (activityEmotionMap['other'][emoTrimmed] || 0) + 1
+                    activityEmotionMap[activityType][emoTrimmed] = (activityEmotionMap[activityType][emoTrimmed] || 0) + 1
                   }
                 })
-              }
-            })
-          }
-          
-          const updatedActivityEmotionData = exampleActivityEmotionData.map(activity => {
-            const emotionCounts = activityEmotionMap[activity.type] || {}
-            const emotions = Object.entries(emotionCounts)
-              .map(([keyword, count]) => ({ keyword, count }))
-              .sort((a, b) => b.count - a.count)
-            
-            return {
-              ...activity,
-              emotions: emotions
-            }
-          })
-          
-          setActivityEmotionData(updatedActivityEmotionData)
-          
-          // 6-1. 활동별 감정 분석 AI 코멘트 생성 (지연 로드 - 비동기로 처리)
-          // AI 기능은 별도로 처리하여 초기 로딩을 방해하지 않음
-          if (updatedActivityEmotionData.length > 0 && selectedStudentId) {
-            // 이전 AI 분석 취소
-            if (aiAbortControllerRef.current) {
-              aiAbortControllerRef.current.abort()
-            }
-            
-            // 새로운 AI AbortController 생성
-            const aiAbortController = new AbortController()
-            aiAbortControllerRef.current = aiAbortController
-            
-            // AI 호출을 비동기로 처리 (데이터 표시를 막지 않음) - 더 긴 지연으로 UI 먼저 렌더링
-            setTimeout(async () => {
-              // 학생이 변경되었는지 확인
-              if (aiAbortController.signal.aborted) {
-                return
+              })
+            } else {
+              if (!activityEmotionMap['other']) {
+                activityEmotionMap['other'] = {}
               }
               
-              try {
-                setIsAiAnalyzing(true)
-                const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
-                const studentName = currentStudent ? (currentStudent.nickname || currentStudent.name) : '학생'
+              const emotions = String(emotionTag).split(/[,，\s]+/).filter(Boolean)
+              emotions.forEach(emo => {
+                const emoTrimmed = emo.trim()
+                if (emoTrimmed && emoTrimmed !== '기타') {
+                  activityEmotionMap['other'][emoTrimmed] = (activityEmotionMap['other'][emoTrimmed] || 0) + 1
+                }
+              })
+            }
+          })
+        }
+        
+        const updatedActivityEmotionData = exampleActivityEmotionData.map(activity => {
+          const emotionCounts = activityEmotionMap[activity.type] || {}
+          const emotions = Object.entries(emotionCounts)
+            .map(([keyword, count]) => ({ keyword, count }))
+            .sort((a, b) => b.count - a.count)
+          
+          return {
+            ...activity,
+            emotions: emotions
+          }
+        })
+        
+        setActivityEmotionData(updatedActivityEmotionData)
+        
+        // ===== AI 분석만 지연 처리 =====
+        
+        // 7. 활동별 감정 분석 AI 코멘트 생성 (AI만 지연 로드)
+        if (updatedActivityEmotionData.length > 0 && selectedStudentId) {
+          // 이전 AI 분석 취소
+          if (aiAbortControllerRef.current) {
+            aiAbortControllerRef.current.abort()
+          }
+          
+          // 새로운 AI AbortController 생성
+          const aiAbortController = new AbortController()
+          aiAbortControllerRef.current = aiAbortController
+          
+          // AI 호출을 비동기로 처리 (데이터 표시를 막지 않음)
+          setTimeout(async () => {
+            // 학생이 변경되었는지 확인
+            if (aiAbortController.signal.aborted) {
+              return
+            }
+            
+            try {
+              setIsAiAnalyzing(true)
+              const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
+              const studentName = currentStudent ? (currentStudent.nickname || currentStudent.name) : '학생'
+              
+              // 활동별 감정 데이터를 AI에 전달
+              const activityEmotionSummary = updatedActivityEmotionData
+                .filter(activity => activity.emotions.length > 0)
+                .map(activity => ({
+                  type: activity.label,
+                  emotions: activity.emotions.map(e => `${e.keyword}(${e.count}회)`).join(', ')
+                }))
+              
+              if (activityEmotionSummary.length > 0) {
+                const aiPrompt = `${studentName} 학생의 활동별 감정 분석 결과입니다:\n\n${activityEmotionSummary.map(a => `- ${a.type}: ${a.emotions}`).join('\n')}\n\n위 데이터를 바탕으로 ${studentName} 학생의 감정 상태에 대한 전문적인 코멘트를 2-3문장으로 작성해주세요.`
                 
-                // 활동별 감정 데이터를 AI에 전달
-                const activityEmotionSummary = updatedActivityEmotionData
-                  .filter(activity => activity.emotions.length > 0)
-                  .map(activity => ({
-                    type: activity.label,
-                    emotions: activity.emotions.map(e => `${e.keyword}(${e.count}회)`).join(', ')
-                  }))
-                
-                if (activityEmotionSummary.length > 0) {
-                  const aiPrompt = `${studentName} 학생의 활동별 감정 분석 결과입니다:\n\n${activityEmotionSummary.map(a => `- ${a.type}: ${a.emotions}`).join('\n')}\n\n위 데이터를 바탕으로 ${studentName} 학생의 감정 상태에 대한 전문적인 코멘트를 2-3문장으로 작성해주세요.`
-                  
-                  const aiRes = await fetchWithAbort('/api/ai/chat', aiAbortController.signal, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      message: aiPrompt,
-                      context: {
-                        selectedStudentId,
-                        selectedStudentName: studentName,
-                        startDate,
-                        endDate
-                      }
-                    })
+                const aiRes = await fetchWithAbort('/api/ai/chat', aiAbortController.signal, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    message: aiPrompt,
+                    context: {
+                      selectedStudentId,
+                      selectedStudentName: studentName,
+                      startDate,
+                      endDate
+                    }
                   })
-                  
-                  // 요청이 취소되었는지 확인
-                  if (aiAbortController.signal.aborted) {
-                    return
-                  }
-                  
-                  if (aiRes && aiRes.message) {
-                    setActivityEmotionAiComment(aiRes.message)
-                  } else {
-                    setActivityEmotionAiComment('')
-                  }
+                })
+                
+                // 요청이 취소되었는지 확인
+                if (aiAbortController.signal.aborted) {
+                  return
+                }
+                
+                if (aiRes && aiRes.message) {
+                  setActivityEmotionAiComment(aiRes.message)
                 } else {
                   setActivityEmotionAiComment('')
                 }
-              } catch (err) {
-                if (err.name === 'AbortError') {
-                  console.log('[대시보드] AI 분석 취소됨')
-                  return
-                }
-                console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
+              } else {
                 setActivityEmotionAiComment('')
-              } finally {
-                if (!aiAbortController.signal.aborted) {
-                  setIsAiAnalyzing(false)
-                }
               }
-            }, 500) // 500ms 지연하여 UI가 먼저 렌더링되도록
-          } else {
-            setActivityEmotionAiComment('')
-            setIsAiAnalyzing(false)
-          }
-        }, 50) // 50ms 지연하여 핵심 데이터 먼저 표시
+            } catch (err) {
+              if (err.name === 'AbortError') {
+                console.log('[대시보드] AI 분석 취소됨')
+                return
+              }
+              console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
+              setActivityEmotionAiComment('')
+            } finally {
+              if (!aiAbortController.signal.aborted) {
+                setIsAiAnalyzing(false)
+              }
+            }
+          }, 500) // AI만 500ms 지연하여 DB 데이터 먼저 표시
+        } else {
+          setActivityEmotionAiComment('')
+          setIsAiAnalyzing(false)
+        }
         
         // 6. 활동별 능력 분석 업데이트 (activityAbilityList)
         if (Array.isArray(res.activityAbilityList) && res.activityAbilityList.length > 0) {
