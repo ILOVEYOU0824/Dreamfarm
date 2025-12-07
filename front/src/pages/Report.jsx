@@ -278,7 +278,7 @@ export default function Report() {
       }
 
       // 마크다운을 HTML로 변환
-      const html = markdownToHtml(markdown);
+      const html = markdownToHtml(markdown, report);
       
       // 새 창에서 HTML 열기
       const printWindow = window.open('', '_blank');
@@ -304,7 +304,7 @@ export default function Report() {
   }
 
   // 마크다운을 HTML로 변환하는 함수
-  function markdownToHtml(markdown) {
+  function markdownToHtml(markdown, report) {
     let html = markdown
       // 제목 변환
       .replace(/^### (.*$)/gim, '<h3>$1</h3>')
