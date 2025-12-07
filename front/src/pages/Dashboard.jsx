@@ -650,278 +650,256 @@ export default function Dashboard() {
           apiUrl += `&to=${endDate}`
         }
         
-        const res = await apiFetch(apiUrl)
-        console.log('[대시보드] API 응답:', res)
+        const logsUrl = `/api/log_entries?student_id=${selectedStudentId}${startDate ? `&from=${startDate}` : ''}${endDate ? `&to=${endDate}` : ''}&status=success`
         
-        // logs 데이터도 함께 가져오기 (개별분석용 감정 키워드 추출을 위해)
-        let logs = []
-        try {
-          const logsRes = await apiFetch(`/api/log_entries?student_id=${selectedStudentId}${startDate ? `&from=${startDate}` : ''}${endDate ? `&to=${endDate}` : ''}&status=success`)
-          logs = Array.isArray(logsRes.items) ? logsRes.items : []
-        } catch (err) {
-          console.error('[대시보드] log_entries 조회 실패:', err)
+        // 두 API를 병렬로 호출하여 속도 개선
+        console.log('[대시보드] 병렬 API 호출 시작')
+        const [res, logsRes] = await Promise.all([
+          apiFetch(apiUrl),
+          apiFetch(logsUrl).catch(err => {
+            console.error('[대시보드] log_entries 조회 실패:', err)
+            return { items: [] }
+          })
+        ])
+        console.log('[대시보드] 병렬 API 호출 완료')
+        
+        const logs = Array.isArray(logsRes.items) ? logsRes.items : []
+        
+        // ===== 핵심 데이터 먼저 표시 (빠른 렌더링) =====
+        
+        // 1. 메트릭 업데이트 (총 기록수 등) - 가장 먼저 표시
+        if (res.metrics) {
+          setMetrics(res.metrics)
+          setStudentRecordCounts(prev => ({
+            ...prev,
+            [selectedStudentId]: res.metrics.recordCount || 0
+          }))
+        } else {
+          setStudentRecordCounts(prev => ({
+            ...prev,
+            [selectedStudentId]: 0
+          }))
         }
         
-        // 1. 감정 키워드 데이터 업데이트 (전체 감정 키워드 TOP3용)
-        // emotionDistribution은 실제로 저장된 emotion_tag만 포함 (기본값 '기타' 제외)
+        // 2. 활동 시계열 데이터 업데이트 - 빠르게 표시
+        if (Array.isArray(res.activitySeries)) {
+          setActivitySeries(res.activitySeries)
+        }
+        
+        // 3. 감정 키워드 데이터 업데이트 (전체 감정 키워드 TOP3용)
         if (Array.isArray(res.emotionDistribution) && res.emotionDistribution.length > 0) {
           const emotionKeywordsData = res.emotionDistribution
             .map(item => ({
               keyword: item.name || item.emotion || '',
               count: item.count || 0
             }))
-            .filter(item => item.keyword && item.keyword !== '기타' && item.keyword.trim() !== '') // '기타' 제외
-            .sort((a, b) => b.count - a.count) // 빈도순 정렬
-          setEmotionKeywords(emotionKeywordsData)
-          console.log('[대시보드] 감정 키워드 업데이트:', emotionKeywordsData)
-        } else {
-          // 데이터가 없으면 빈 배열로 설정 (예시 데이터 표시 안 함)
-          setEmotionKeywords([])
-          console.log('[대시보드] 감정 키워드 데이터 없음, 빈 배열로 설정')
-        }
-        
-        // 1-1. 개별분석용 선택한 감정 키워드 추출 (log_entries에서 emotion_tag 가져오기)
-        if (Array.isArray(logs) && logs.length > 0) {
-          const selectedEmotions = new Map()
-          logs.forEach(log => {
-            if (log.emotion_tag) {
-              const emotionTag = String(log.emotion_tag).trim()
-              // '기타'는 감정 키워드가 아니므로 제외
-              if (emotionTag && emotionTag !== '기타') {
-                // 쉼표로 구분된 감정 키워드 분리
-                const emotions = emotionTag.split(/[,，\s]+/).filter(Boolean)
-                emotions.forEach(emo => {
-                  const emoTrimmed = emo.trim()
-                  // '기타'가 아닌 실제 감정 키워드만 추가
-                  if (emoTrimmed && emoTrimmed !== '기타') {
-                    selectedEmotions.set(emoTrimmed, (selectedEmotions.get(emoTrimmed) || 0) + 1)
-                  }
-                })
-              }
-            }
-          })
-          
-          const selectedEmotionKeywordsData = Array.from(selectedEmotions.entries())
-            .map(([keyword, count]) => ({ keyword, count }))
+            .filter(item => item.keyword && item.keyword !== '기타' && item.keyword.trim() !== '')
             .sort((a, b) => b.count - a.count)
-          
-          setSelectedEmotionKeywords(selectedEmotionKeywordsData)
-          console.log('[대시보드] 선택한 감정 키워드 업데이트:', selectedEmotionKeywordsData)
-          console.log('[대시보드] log_entries 원본 데이터:', logs.map(l => ({ id: l.id, emotion_tag: l.emotion_tag, activity_tags: l.activity_tags })))
+          setEmotionKeywords(emotionKeywordsData)
         } else {
-          setSelectedEmotionKeywords([])
+          setEmotionKeywords([])
         }
         
-        // 2. 메트릭 업데이트 (총 기록수 등)
-        if (res.metrics) {
-          setMetrics(res.metrics)
-          // 학생 클릭 시에도 기록수 업데이트 (메트릭에서 가져온 값이 더 정확할 수 있음)
-          setStudentRecordCounts(prev => {
-            const newCount = res.metrics.recordCount || 0
-            console.log(`[대시보드] 학생 ${selectedStudentId} 기록수 업데이트: ${prev[selectedStudentId]} -> ${newCount}`)
-            return {
-              ...prev,
-              [selectedStudentId]: newCount
-            }
-          })
-          console.log('[대시보드] 메트릭 업데이트:', res.metrics)
-        } else {
-          // 데이터가 없으면 기록수 0으로 설정
-          setStudentRecordCounts(prev => {
-            console.log(`[대시보드] 학생 ${selectedStudentId} 기록수 없음, 0으로 설정`)
-            return {
-              ...prev,
-              [selectedStudentId]: 0
-            }
-          })
-        }
+        // ===== 복잡한 데이터 처리는 나중에 (점진적 업데이트) =====
         
-        // 3. 활동 시계열 데이터 업데이트
-        if (Array.isArray(res.activitySeries)) {
-          setActivitySeries(res.activitySeries)
-          console.log('[대시보드] 활동 시계열 업데이트:', res.activitySeries.length, '개')
-        }
-        
-        // 4. 활동 상세 내역 업데이트
-        if (Array.isArray(res.activityDetails)) {
-          const formattedDetails = res.activityDetails.map(item => ({
-            id: item.id || `detail_${Date.now()}_${Math.random()}`,
-            date: item.date || '',
-            activity: item.activity || item.category || '기록 있음',
-            type: item.category || '기타',
-            activityType: '개별활동', // 나중에 단체/개별 구분 로직 추가 가능
-            studentComment: item.note || '',
-            studentName: studentNamesMap[selectedStudentId] || '학생',
-            studentId: selectedStudentId
-          }))
-          setActivityDetails(formattedDetails)
-          
-          // 기록이 있는 날짜 목록 추출 (YYYY-MM-DD 형식)
-          const datesSet = new Set()
-          formattedDetails.forEach(detail => {
-            if (detail.date) {
-              // 날짜 형식 정규화 (YYYY-MM-DD)
-              const dateStr = detail.date.includes('T') 
-                ? detail.date.split('T')[0] 
-                : detail.date.split(' ')[0]
-              if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-                datesSet.add(dateStr)
-              }
-            }
-          })
-          // logs에서도 날짜 추출
-          if (Array.isArray(logs) && logs.length > 0) {
-            logs.forEach(log => {
-              if (log.log_date) {
-                const dateStr = log.log_date.includes('T') 
-                  ? log.log_date.split('T')[0] 
-                  : log.log_date.split(' ')[0]
+        // 4. 활동 상세 내역 업데이트 (다음 틱에서 처리)
+        setTimeout(() => {
+          if (Array.isArray(res.activityDetails)) {
+            const formattedDetails = res.activityDetails.map(item => ({
+              id: item.id || `detail_${Date.now()}_${Math.random()}`,
+              date: item.date || '',
+              activity: item.activity || item.category || '기록 있음',
+              type: item.category || '기타',
+              activityType: '개별활동',
+              studentComment: item.note || '',
+              studentName: studentNamesMap[selectedStudentId] || '학생',
+              studentId: selectedStudentId
+            }))
+            setActivityDetails(formattedDetails)
+            
+            // 기록이 있는 날짜 목록 추출
+            const datesSet = new Set()
+            formattedDetails.forEach(detail => {
+              if (detail.date) {
+                const dateStr = detail.date.includes('T') 
+                  ? detail.date.split('T')[0] 
+                  : detail.date.split(' ')[0]
                 if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
                   datesSet.add(dateStr)
                 }
               }
             })
-          }
-          setDatesWithRecords(datesSet)
-          console.log('[대시보드] 활동 상세 내역 업데이트:', formattedDetails.length, '개')
-          console.log('[대시보드] 기록이 있는 날짜:', Array.from(datesSet))
-        } else {
-          setDatesWithRecords(new Set())
-        }
-        
-        // 4-1. 활동 유형별 통계 계산 (log_entries의 activity_tags 기반)
-        const calculatedActivityTypeStats = calculateActivityTypeStats(logs)
-        setActivityTypeStats(calculatedActivityTypeStats)
-        console.log('[대시보드] 활동 유형별 통계 업데이트:', calculatedActivityTypeStats)
-
-        // 5. 활동별 감정 키워드 빈도 업데이트 (log_entries에서 직접 추출)
-        // log_entries의 emotion_tag와 activity_tags를 사용하여 정확한 데이터 추출
-        const activityEmotionMap = {}
-        
-        if (Array.isArray(logs) && logs.length > 0) {
-          logs.forEach(log => {
-            // emotion_tag 추출
-            const emotionTag = log.emotion_tag || ''
-            if (!emotionTag) return
-            
-            // activity_tags 추출
-            const activityTags = Array.isArray(log.activity_tags) ? log.activity_tags : []
-            
-            // 활동 태그가 있으면 각 활동별로 감정 매핑
-            if (activityTags.length > 0) {
-              activityTags.forEach(activityName => {
-                // 활동 유형 추론 (activity_name에서)
-                let activityType = 'other'
-                const activityLower = String(activityName).toLowerCase()
-                
-                if (activityLower.includes('수확') || activityLower.includes('harvest')) {
-                  activityType = 'harvest'
-                } else if (activityLower.includes('파종') || activityLower.includes('sowing') || activityLower.includes('심기')) {
-                  activityType = 'sow'
-                } else if (activityLower.includes('관리') || activityLower.includes('manage') || activityLower.includes('물주')) {
-                  activityType = 'manage'
-                } else if (activityLower.includes('관찰') || activityLower.includes('observe') || activityLower.includes('보기')) {
-                  activityType = 'observe'
-                }
-                
-                if (!activityEmotionMap[activityType]) {
-                  activityEmotionMap[activityType] = {}
-                }
-                
-                // 감정 키워드 집계 (감정이 여러 개일 수 있으므로 분리, '기타' 제외)
-                const emotions = String(emotionTag).split(/[,，\s]+/).filter(Boolean)
-                emotions.forEach(emo => {
-                  const emoTrimmed = emo.trim()
-                  // '기타'는 감정 키워드가 아니므로 제외
-                  if (emoTrimmed && emoTrimmed !== '기타') {
-                    activityEmotionMap[activityType][emoTrimmed] = (activityEmotionMap[activityType][emoTrimmed] || 0) + 1
+            if (Array.isArray(logs) && logs.length > 0) {
+              logs.forEach(log => {
+                if (log.log_date) {
+                  const dateStr = log.log_date.includes('T') 
+                    ? log.log_date.split('T')[0] 
+                    : log.log_date.split(' ')[0]
+                  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+                    datesSet.add(dateStr)
                   }
-                })
-              })
-            } else {
-              // 활동 태그가 없으면 '기타' 활동으로 분류
-              if (!activityEmotionMap['other']) {
-                activityEmotionMap['other'] = {}
-              }
-              
-              const emotions = String(emotionTag).split(/[,，\s]+/).filter(Boolean)
-              emotions.forEach(emo => {
-                const emoTrimmed = emo.trim()
-                // '기타'는 감정 키워드가 아니므로 제외
-                if (emoTrimmed && emoTrimmed !== '기타') {
-                  activityEmotionMap['other'][emoTrimmed] = (activityEmotionMap['other'][emoTrimmed] || 0) + 1
                 }
               })
             }
-          })
-        }
-        
-        // 활동별 감정 데이터 형식으로 변환
-        const updatedActivityEmotionData = exampleActivityEmotionData.map(activity => {
-          const emotionCounts = activityEmotionMap[activity.type] || {}
-          const emotions = Object.entries(emotionCounts)
-            .map(([keyword, count]) => ({ keyword, count }))
-            .sort((a, b) => b.count - a.count)
-          
-          return {
-            ...activity,
-            emotions: emotions // 데이터가 없으면 빈 배열
+            setDatesWithRecords(datesSet)
+          } else {
+            setDatesWithRecords(new Set())
           }
-        })
+        }, 0)
         
-        setActivityEmotionData(updatedActivityEmotionData)
-        console.log('[대시보드] 활동별 감정 키워드 업데이트:', updatedActivityEmotionData)
+        // 5. 개별분석용 선택한 감정 키워드 추출 (다음 틱에서 처리)
+        setTimeout(() => {
+          if (Array.isArray(logs) && logs.length > 0) {
+            const selectedEmotions = new Map()
+            logs.forEach(log => {
+              if (log.emotion_tag) {
+                const emotionTag = String(log.emotion_tag).trim()
+                if (emotionTag && emotionTag !== '기타') {
+                  const emotions = emotionTag.split(/[,，\s]+/).filter(Boolean)
+                  emotions.forEach(emo => {
+                    const emoTrimmed = emo.trim()
+                    if (emoTrimmed && emoTrimmed !== '기타') {
+                      selectedEmotions.set(emoTrimmed, (selectedEmotions.get(emoTrimmed) || 0) + 1)
+                    }
+                  })
+                }
+              }
+            })
+            
+            const selectedEmotionKeywordsData = Array.from(selectedEmotions.entries())
+              .map(([keyword, count]) => ({ keyword, count }))
+              .sort((a, b) => b.count - a.count)
+            
+            setSelectedEmotionKeywords(selectedEmotionKeywordsData)
+          } else {
+            setSelectedEmotionKeywords([])
+          }
+        }, 0)
         
-        // 6-1. 활동별 감정 분석 AI 코멘트 생성 (지연 로드 - 비동기로 처리)
-        // AI 기능은 별도로 처리하여 초기 로딩을 방해하지 않음
-        if (updatedActivityEmotionData.length > 0 && selectedStudentId) {
-          // AI 호출을 비동기로 처리 (데이터 표시를 막지 않음) - 더 긴 지연으로 UI 먼저 렌더링
-          setTimeout(async () => {
-            try {
-              const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
-              const studentName = currentStudent ? (currentStudent.nickname || currentStudent.name) : '학생'
+        // 6. 활동 유형별 통계 및 활동별 감정 키워드 빈도 (복잡한 계산은 나중에 처리)
+        setTimeout(() => {
+          // 6-1. 활동 유형별 통계 계산
+          const calculatedActivityTypeStats = calculateActivityTypeStats(logs)
+          setActivityTypeStats(calculatedActivityTypeStats)
+          
+          // 6-2. 활동별 감정 키워드 빈도 업데이트
+          const activityEmotionMap = {}
+          
+          if (Array.isArray(logs) && logs.length > 0) {
+            logs.forEach(log => {
+              const emotionTag = log.emotion_tag || ''
+              if (!emotionTag) return
               
-              // 활동별 감정 데이터를 AI에 전달
-              const activityEmotionSummary = updatedActivityEmotionData
-                .filter(activity => activity.emotions.length > 0)
-                .map(activity => ({
-                  type: activity.label,
-                  emotions: activity.emotions.map(e => `${e.keyword}(${e.count}회)`).join(', ')
-                }))
+              const activityTags = Array.isArray(log.activity_tags) ? log.activity_tags : []
               
-              if (activityEmotionSummary.length > 0) {
-                const aiPrompt = `${studentName} 학생의 활동별 감정 분석 결과입니다:\n\n${activityEmotionSummary.map(a => `- ${a.type}: ${a.emotions}`).join('\n')}\n\n위 데이터를 바탕으로 ${studentName} 학생의 감정 상태에 대한 전문적인 코멘트를 2-3문장으로 작성해주세요.`
-                
-                const aiRes = await apiFetch('/api/ai/chat', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    message: aiPrompt,
-                    context: {
-                      selectedStudentId,
-                      selectedStudentName: studentName,
-                      startDate,
-                      endDate
+              if (activityTags.length > 0) {
+                activityTags.forEach(activityName => {
+                  let activityType = 'other'
+                  const activityLower = String(activityName).toLowerCase()
+                  
+                  if (activityLower.includes('수확') || activityLower.includes('harvest')) {
+                    activityType = 'harvest'
+                  } else if (activityLower.includes('파종') || activityLower.includes('sowing') || activityLower.includes('심기')) {
+                    activityType = 'sow'
+                  } else if (activityLower.includes('관리') || activityLower.includes('manage') || activityLower.includes('물주')) {
+                    activityType = 'manage'
+                  } else if (activityLower.includes('관찰') || activityLower.includes('observe') || activityLower.includes('보기')) {
+                    activityType = 'observe'
+                  }
+                  
+                  if (!activityEmotionMap[activityType]) {
+                    activityEmotionMap[activityType] = {}
+                  }
+                  
+                  const emotions = String(emotionTag).split(/[,，\s]+/).filter(Boolean)
+                  emotions.forEach(emo => {
+                    const emoTrimmed = emo.trim()
+                    if (emoTrimmed && emoTrimmed !== '기타') {
+                      activityEmotionMap[activityType][emoTrimmed] = (activityEmotionMap[activityType][emoTrimmed] || 0) + 1
                     }
                   })
                 })
+              } else {
+                if (!activityEmotionMap['other']) {
+                  activityEmotionMap['other'] = {}
+                }
                 
-                if (aiRes && aiRes.message) {
-                  setActivityEmotionAiComment(aiRes.message)
+                const emotions = String(emotionTag).split(/[,，\s]+/).filter(Boolean)
+                emotions.forEach(emo => {
+                  const emoTrimmed = emo.trim()
+                  if (emoTrimmed && emoTrimmed !== '기타') {
+                    activityEmotionMap['other'][emoTrimmed] = (activityEmotionMap['other'][emoTrimmed] || 0) + 1
+                  }
+                })
+              }
+            })
+          }
+          
+          const updatedActivityEmotionData = exampleActivityEmotionData.map(activity => {
+            const emotionCounts = activityEmotionMap[activity.type] || {}
+            const emotions = Object.entries(emotionCounts)
+              .map(([keyword, count]) => ({ keyword, count }))
+              .sort((a, b) => b.count - a.count)
+            
+            return {
+              ...activity,
+              emotions: emotions
+            }
+          })
+          
+          setActivityEmotionData(updatedActivityEmotionData)
+          
+          // 6-1. 활동별 감정 분석 AI 코멘트 생성 (지연 로드 - 비동기로 처리)
+          // AI 기능은 별도로 처리하여 초기 로딩을 방해하지 않음
+          if (updatedActivityEmotionData.length > 0 && selectedStudentId) {
+            // AI 호출을 비동기로 처리 (데이터 표시를 막지 않음) - 더 긴 지연으로 UI 먼저 렌더링
+            setTimeout(async () => {
+              try {
+                const currentStudent = students.find(s => s.id === selectedStudentId) || students[0]
+                const studentName = currentStudent ? (currentStudent.nickname || currentStudent.name) : '학생'
+                
+                // 활동별 감정 데이터를 AI에 전달
+                const activityEmotionSummary = updatedActivityEmotionData
+                  .filter(activity => activity.emotions.length > 0)
+                  .map(activity => ({
+                    type: activity.label,
+                    emotions: activity.emotions.map(e => `${e.keyword}(${e.count}회)`).join(', ')
+                  }))
+                
+                if (activityEmotionSummary.length > 0) {
+                  const aiPrompt = `${studentName} 학생의 활동별 감정 분석 결과입니다:\n\n${activityEmotionSummary.map(a => `- ${a.type}: ${a.emotions}`).join('\n')}\n\n위 데이터를 바탕으로 ${studentName} 학생의 감정 상태에 대한 전문적인 코멘트를 2-3문장으로 작성해주세요.`
+                  
+                  const aiRes = await apiFetch('/api/ai/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      message: aiPrompt,
+                      context: {
+                        selectedStudentId,
+                        selectedStudentName: studentName,
+                        startDate,
+                        endDate
+                      }
+                    })
+                  })
+                  
+                  if (aiRes && aiRes.message) {
+                    setActivityEmotionAiComment(aiRes.message)
+                  } else {
+                    setActivityEmotionAiComment('')
+                  }
                 } else {
                   setActivityEmotionAiComment('')
                 }
-              } else {
+              } catch (err) {
+                console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
                 setActivityEmotionAiComment('')
               }
-            } catch (err) {
-              console.error('[대시보드] 활동별 감정 분석 AI 코멘트 생성 실패:', err)
-              setActivityEmotionAiComment('')
-            }
-          }, 500) // 500ms 지연하여 UI가 먼저 렌더링되도록
-        } else {
-          setActivityEmotionAiComment('')
-        }
+            }, 500) // 500ms 지연하여 UI가 먼저 렌더링되도록
+          } else {
+            setActivityEmotionAiComment('')
+          }
+        }, 50) // 50ms 지연하여 핵심 데이터 먼저 표시
         
         // 6. 활동별 능력 분석 업데이트 (activityAbilityList)
         if (Array.isArray(res.activityAbilityList) && res.activityAbilityList.length > 0) {
