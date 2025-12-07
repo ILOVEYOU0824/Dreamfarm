@@ -3124,15 +3124,11 @@ app.delete(['/report-runs/:id', '/api/report-runs/:id'], async (req, res) => {
   }
 });
 
-// 🧾 리포트 마크다운 다운로드 API
-// GET /report-runs/:id/download?format=md
+// 🧾 리포트 마크다운/PDF 다운로드 API
+// GET /report-runs/:id/download?format=md|pdf
 app.get(['/report-runs/:id/download', '/api/report-runs/:id/download'], async (req, res) => {
   const { id } = req.params;
   const format = (req.query.format || 'md').toString().toLowerCase();
-
-  if (format !== 'md' && format !== 'markdown') {
-    return res.status(400).json({ message: '지원하지 않는 포맷입니다. md만 지원됩니다.' });
-  }
 
   try {
     const { data: run, error } = await supabase
@@ -3159,8 +3155,24 @@ app.get(['/report-runs/:id/download', '/api/report-runs/:id/download'], async (r
     const dateLabel = from && to && from !== to ? `${from}~${to}` : (from || to || '');
 
     const safeName = `${studentName}_${dateLabel}`.trim().replace(/[^0-9a-zA-Z가-힣_\-]+/g, '_') || 'report';
-    const fileName = `${safeName}.md`;
 
+    // PDF 형식 요청
+    if (format === 'pdf') {
+      // 마크다운을 HTML로 변환
+      const html = markdownToHtml(markdown);
+      
+      // HTML을 PDF로 변환 (간단한 방법: HTML을 그대로 반환하고 프론트엔드에서 처리)
+      // 또는 puppeteer 등을 사용할 수 있지만, 일단 HTML을 반환하고 프론트엔드에서 PDF로 변환
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${encodeURIComponent(safeName)}.html"`,
+      );
+      return res.send(html);
+    }
+
+    // 마크다운 형식 (기본)
+    const fileName = `${safeName}.md`;
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
@@ -3173,6 +3185,46 @@ app.get(['/report-runs/:id/download', '/api/report-runs/:id/download'], async (r
     return res.status(500).json({ message: 'Server Error', error: e.toString() });
   }
 });
+
+// 마크다운을 HTML로 변환하는 간단한 함수
+function markdownToHtml(markdown) {
+  let html = markdown
+    // 제목 변환
+    .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+    // 강조
+    .replace(/\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/gim, '<em>$1</em>')
+    // 리스트
+    .replace(/^\- (.*$)/gim, '<li>$1</li>')
+    .replace(/^(\d+)\. (.*$)/gim, '<li>$2</li>')
+    // 줄바꿈
+    .replace(/\n/g, '<br>');
+  
+  // 리스트 항목을 ul로 감싸기
+  html = html.replace(/(<li>.*<\/li>)/gim, '<ul>$1</ul>');
+  
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.6; }
+    h1 { color: #333; border-bottom: 2px solid #333; padding-bottom: 10px; }
+    h2 { color: #555; margin-top: 30px; }
+    h3 { color: #777; margin-top: 20px; }
+    ul { margin: 10px 0; padding-left: 30px; }
+    li { margin: 5px 0; }
+    strong { color: #333; }
+  </style>
+</head>
+<body>
+${html}
+</body>
+</html>`;
+}
 
 // 📊 대시보드용 로그 집계 API
 // GET /api/dashboard?studentId=...&from=YYYY-MM-DD&to=YYYY-MM-DD
