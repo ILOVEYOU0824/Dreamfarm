@@ -298,6 +298,7 @@ export default function UploadPage() {
         uploaded_at: upload.created_at,
         student_name: upload.student_name || '학생 미확인',
         raw_text: upload.raw_text || null,
+        has_log_entries: upload.has_log_entries || false, // 백엔드에서 반환하는 log_entries 존재 여부
         overall_progress: upload.progress || 0,
         steps: {
           upload: 100,
@@ -1964,11 +1965,28 @@ export default function UploadPage() {
           {/* [오른쪽] 파일 목록 패널 컴포넌트 */}
           <UploadListPanel 
             uploads={uploads.filter(u => {
+              // 저장된 파일 목록에 있는지 확인 (과거 목록으로 이동한 파일 제외)
+              const isSaved = savedFiles.some(saved => {
+                const savedPath = saved.source_file_path || saved.file_name;
+                // 새로운 형식: {upload_id}::{file_name}
+                if (savedPath && savedPath.includes('::')) {
+                  const savedUploadId = savedPath.split('::')[0];
+                  return savedUploadId === u.id;
+                }
+                // 기존 형식: file_name만
+                return savedPath === u.file_name;
+              });
+              
+              // 저장된 파일은 "AI 분석 완료 파일" 목록에서 제외 (과거 목록에만 표시)
+              if (isSaved) {
+                return false;
+              }
+              
               // status가 success이면서 실제로 분석 결과가 있는 경우만 표시
               if (u.status === 'success') {
                 // raw_text가 있거나 log_entries가 있거나 analysisByStudent가 있어야 함
                 const hasRawText = u.raw_text && u.raw_text.length > 0
-                const hasLogEntries = u.log_entries && u.log_entries.length > 0
+                const hasLogEntries = u.has_log_entries || (u.log_entries && u.log_entries.length > 0) // 백엔드에서 반환하는 플래그 사용
                 const hasAnalysis = u.analysisByStudent && Object.keys(u.analysisByStudent).length > 0
                 return hasRawText || hasLogEntries || hasAnalysis
               }

@@ -195,17 +195,6 @@ export default function Login() {
             />
           </div>
 
-          <div style={styles.optionsRow}>
-            <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
-              <label style={{display:'flex', alignItems:'center', gap:'4px', cursor:'pointer'}}>
-                <input type="checkbox" /> 아이디 저장
-              </label>
-              <label style={{display:'flex', alignItems:'center', gap:'4px', cursor:'pointer'}}>
-                <input type="checkbox" /> 보안 로그인
-              </label>
-            </div>
-          </div>
-
           <button type="submit" style={styles.submitBtn} disabled={loading}>
             {loading ? '로그인 중...' : '운영자 로그인'}
           </button>
