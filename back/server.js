@@ -59,6 +59,9 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'https://dreamgrowfarm.netlify.app', // Netlify 배포 URL 추가
 ];
 
+// 운영 환경에서 모든 오리진을 임시로 허용해야 할 때 사용 (ex. 배포 직후 CORS 문제)
+const CORS_ALLOW_ALL = process.env.CORS_ALLOW_ALL === '1';
+
 // 환경변수 FRONTEND_ORIGINS에 쉼표로 여러 개 지정 가능
 const envOrigins = (process.env.FRONTEND_ORIGINS || process.env.FRONTEND_ORIGIN || '')
   .split(',')
@@ -73,6 +76,9 @@ console.log('[CORS] Allowed origins:', ALLOWED_ORIGINS);
 
 const corsOptions = {
   origin(origin, callback) {
+    // 모든 오리진 허용 모드 (Render 배포 CORS 우회용)
+    if (CORS_ALLOW_ALL) return callback(null, true);
+
     // 비브라우저/서버-서버 요청(origin 없음) 허용
     if (!origin) return callback(null, true);
     if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
@@ -83,6 +89,15 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   maxAge: 600,
 };
+
+// CORS 헤더를 선반영해 Render의 프록시/리다이렉트에서도 헤더가 누락되지 않게 함
+app.use((req, res, next) => {
+  if (CORS_ALLOW_ALL && req.headers.origin) {
+    res.header('Access-Control-Allow-Origin', req.headers.origin);
+  }
+  res.header('Vary', 'Origin');
+  next();
+});
 
 app.use(cors(corsOptions));
 // 사전검사(Preflight) 요청 처리: 현재 요청에 대해 cors 헤더를 적용한 뒤 204 반환
