@@ -1141,9 +1141,25 @@ export default function UploadPage() {
           activityTypes.observe.detail = content
           activityTypes.observe.emotionTags = emotionTags
         } else {
+          // 기본값: 기타 활동
           activityTypes.etc.selected = true
           activityTypes.etc.detail = content
           activityTypes.etc.emotionTags = emotionTags
+        }
+      }
+      
+      // 활동 태그가 비어있거나 "기타"인 경우에도 감정 키워드가 있으면 etc에 추가
+      if (allActivityTags.length === 0 || (allActivityTags.length === 1 && allActivityTags[0] === '기타')) {
+        if (emotionTags.length > 0 && !activityTypes.etc.selected) {
+          activityTypes.etc.selected = true
+          activityTypes.etc.detail = group.entries.find(e => e.log_content)?.log_content || ''
+          activityTypes.etc.emotionTags = emotionTags
+          if (activityName && !activityTypes.etc.activityName) {
+            activityTypes.etc.activityName = activityName
+          }
+        } else if (emotionTags.length > 0 && activityTypes.etc.selected) {
+          // 이미 etc가 선택되어 있으면 감정 키워드만 병합
+          activityTypes.etc.emotionTags = [...new Set([...activityTypes.etc.emotionTags || [], ...emotionTags])]
         }
       }
       
@@ -1200,6 +1216,7 @@ export default function UploadPage() {
           if (!analysisByStudent[studentId]) {
             analysisByStudent[studentId] = {
               analysis: {
+                studentName: studentName, // 학생 이름 저장
                 emotionTags: [],
                 activityName: '',
                 date: date,
@@ -1210,12 +1227,13 @@ export default function UploadPage() {
             }
           }
           
-          // 감정 태그 수집
+          // 감정 태그 수집 및 필터링
+          let filteredEmotions = []
           if (emotions.length > 0) {
-            const filtered = filterEmotionTags(emotions, allowedEmotionSet)
+            filteredEmotions = filterEmotionTags(emotions, allowedEmotionSet)
             analysisByStudent[studentId].analysis.emotionTags = [
               ...analysisByStudent[studentId].analysis.emotionTags,
-              ...filtered
+              ...filteredEmotions
             ]
           }
           
@@ -1244,8 +1262,8 @@ export default function UploadPage() {
             if (activityName && !activityTypes.harvest.activityName) {
               activityTypes.harvest.activityName = activityName
             }
-            if (emotions.length > 0) {
-              activityTypes.harvest.emotionTags = [...new Set([...activityTypes.harvest.emotionTags || [], ...emotions])]
+            if (filteredEmotions.length > 0) {
+              activityTypes.harvest.emotionTags = [...new Set([...activityTypes.harvest.emotionTags || [], ...filteredEmotions])]
             }
           } else if (typeLower.includes('파종') || typeLower.includes('sowing')) {
             activityTypes.sowing.selected = true
@@ -1255,8 +1273,8 @@ export default function UploadPage() {
             if (activityName && !activityTypes.sowing.activityName) {
               activityTypes.sowing.activityName = activityName
             }
-            if (emotions.length > 0) {
-              activityTypes.sowing.emotionTags = [...new Set([...activityTypes.sowing.emotionTags || [], ...emotions])]
+            if (filteredEmotions.length > 0) {
+              activityTypes.sowing.emotionTags = [...new Set([...activityTypes.sowing.emotionTags || [], ...filteredEmotions])]
             }
           } else if (typeLower.includes('관리') || typeLower.includes('manage')) {
             activityTypes.manage.selected = true
@@ -1266,8 +1284,8 @@ export default function UploadPage() {
             if (activityName && !activityTypes.manage.activityName) {
               activityTypes.manage.activityName = activityName
             }
-            if (emotions.length > 0) {
-              activityTypes.manage.emotionTags = [...new Set([...activityTypes.manage.emotionTags || [], ...emotions])]
+            if (filteredEmotions.length > 0) {
+              activityTypes.manage.emotionTags = [...new Set([...activityTypes.manage.emotionTags || [], ...filteredEmotions])]
             }
           } else if (typeLower.includes('관찰') || typeLower.includes('observe')) {
             activityTypes.observe.selected = true
@@ -1277,10 +1295,11 @@ export default function UploadPage() {
             if (activityName && !activityTypes.observe.activityName) {
               activityTypes.observe.activityName = activityName
             }
-            if (emotions.length > 0) {
-              activityTypes.observe.emotionTags = [...new Set([...activityTypes.observe.emotionTags || [], ...emotions])]
+            if (filteredEmotions.length > 0) {
+              activityTypes.observe.emotionTags = [...new Set([...activityTypes.observe.emotionTags || [], ...filteredEmotions])]
             }
           } else if (typeLower) {
+            // 기타 활동 유형
             activityTypes.etc.selected = true
             if (teacherNotes && !activityTypes.etc.detail) {
               activityTypes.etc.detail = teacherNotes
@@ -1288,8 +1307,20 @@ export default function UploadPage() {
             if (activityName && !activityTypes.etc.activityName) {
               activityTypes.etc.activityName = activityName
             }
-            if (emotions.length > 0) {
-              activityTypes.etc.emotionTags = [...new Set([...activityTypes.etc.emotionTags || [], ...emotions])]
+            if (filteredEmotions.length > 0) {
+              activityTypes.etc.emotionTags = [...new Set([...activityTypes.etc.emotionTags || [], ...filteredEmotions])]
+            }
+          } else {
+            // 활동 유형이 없거나 비어있는 경우에도 감정 키워드가 있으면 기타에 추가
+            if (filteredEmotions.length > 0) {
+              activityTypes.etc.selected = true
+              if (teacherNotes && !activityTypes.etc.detail) {
+                activityTypes.etc.detail = teacherNotes
+              }
+              if (activityName && !activityTypes.etc.activityName) {
+                activityTypes.etc.activityName = activityName
+              }
+              activityTypes.etc.emotionTags = [...new Set([...activityTypes.etc.emotionTags || [], ...filteredEmotions])]
             }
           }
         })
@@ -1412,19 +1443,75 @@ export default function UploadPage() {
         console.log(`[상세 모달] log_entries로 분석 결과 변환 시작...`)
         analysisByStudent = convertLogEntriesToAnalysis(uploadRes.log_entries, initialText, allowedEmotionSet)
         console.log(`[상세 모달] 변환된 분석 결과:`, JSON.stringify(analysisByStudent, null, 2))
-      } 
-      // 2. details에 AI 분석 결과가 있으면 사용
-      else if (uploadRes.details && uploadRes.details.dates && Array.isArray(uploadRes.details.dates)) {
-        console.log(`[상세 모달] details에서 AI 분석 결과 변환 시작...`)
-        analysisByStudent = convertDetailsToAnalysis(uploadRes.details, initialText, allowedEmotionSet)
-        console.log(`[상세 모달] details에서 변환된 분석 결과:`, JSON.stringify(analysisByStudent, null, 2))
       }
-      // 3. 기존 analysisByStudent 사용
-      else if (upload.analysisByStudent && Object.keys(upload.analysisByStudent).length > 0) {
+      
+      // 2. details에 AI 분석 결과가 있으면 병합 (log_entries에 없는 학생 데이터 추가)
+      if (uploadRes.details && uploadRes.details.dates && Array.isArray(uploadRes.details.dates)) {
+        console.log(`[상세 모달] details에서 AI 분석 결과 병합 시작...`)
+        const detailsAnalysis = convertDetailsToAnalysis(uploadRes.details, initialText, allowedEmotionSet)
+        
+        // details의 학생 데이터를 analysisByStudent에 병합 (이름 기준으로 매칭)
+        Object.keys(detailsAnalysis).forEach(detailsStudentId => {
+          const detailsData = detailsAnalysis[detailsStudentId]
+          const detailsStudentName = detailsData.analysis?.studentName || detailsStudentId.replace('student_', '')
+          
+          // 기존 students 목록에서 이름으로 매칭되는 학생 찾기
+          const matchedStudent = students.find(s => (s.name || '').trim() === detailsStudentName.trim())
+          const targetStudentId = matchedStudent ? matchedStudent.id : detailsStudentId
+          
+          // 기존 데이터가 없거나, 있더라도 details가 더 상세하면 병합
+          if (!analysisByStudent[targetStudentId] || 
+              (!analysisByStudent[targetStudentId].analysis.note && detailsData.analysis.note)) {
+            analysisByStudent[targetStudentId] = {
+              ...detailsData,
+              analysis: {
+                ...detailsData.analysis,
+                studentName: detailsStudentName
+              }
+            }
+          } else {
+            // 기존 데이터와 병합 (감정 태그와 활동 유형 병합)
+            const existing = analysisByStudent[targetStudentId]
+            const mergedEmotionTags = [...new Set([
+              ...(existing.analysis.emotionTags || []),
+              ...(detailsData.analysis.emotionTags || [])
+            ])]
+            
+            // 활동 유형 병합 (details의 데이터가 있으면 우선)
+            const mergedActivityTypes = { ...existing.activityTypes }
+            Object.keys(detailsData.activityTypes || {}).forEach(key => {
+              const detailsType = detailsData.activityTypes[key]
+              if (detailsType && detailsType.selected) {
+                mergedActivityTypes[key] = {
+                  ...mergedActivityTypes[key],
+                  ...detailsType,
+                  emotionTags: [...new Set([
+                    ...(mergedActivityTypes[key].emotionTags || []),
+                    ...(detailsType.emotionTags || [])
+                  ])]
+                }
+              }
+            })
+            
+            analysisByStudent[targetStudentId] = {
+              ...existing,
+              analysis: {
+                ...existing.analysis,
+                emotionTags: mergedEmotionTags,
+                note: existing.analysis.note || detailsData.analysis.note,
+                activityName: existing.analysis.activityName || detailsData.analysis.activityName
+              },
+              activityTypes: mergedActivityTypes
+            }
+          }
+        })
+        console.log(`[상세 모달] 병합된 분석 결과:`, JSON.stringify(analysisByStudent, null, 2))
+      }
+      
+      // 3. 기존 analysisByStudent 사용 (위에서 변환된 데이터가 없을 때만)
+      if (Object.keys(analysisByStudent).length === 0 && upload.analysisByStudent && Object.keys(upload.analysisByStudent).length > 0) {
         console.log(`[상세 모달] 기존 analysisByStudent 사용`)
         analysisByStudent = upload.analysisByStudent
-      } else {
-        console.log(`[상세 모달] 분석 결과 없음, 기본값 생성`)
       }
       
       // 학생별로 분석 데이터가 없으면 기본값 생성
