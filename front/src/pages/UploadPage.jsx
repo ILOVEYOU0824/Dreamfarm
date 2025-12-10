@@ -115,6 +115,7 @@ function calculateSimilarity(str1, str2) {
 }
 
 // 허용된 감정 키워드 목록으로 필터링 (대소문자 무시)
+// 정확 일치가 없으면 유사도 기반으로 가장 가까운 태그를 선택 (임계값 0.45)
 function filterEmotionTags(tags, allowedSet) {
   if (!Array.isArray(tags)) return []
   const normalized = tags
@@ -124,7 +125,29 @@ function filterEmotionTags(tags, allowedSet) {
 
   if (!allowedSet || allowedSet.size === 0) return []
 
-  const matched = normalized.filter(tag => allowedSet.has(tag.toLowerCase()))
+  const allowedList = Array.from(allowedSet) // 모두 소문자
+  const matched = []
+
+  normalized.forEach(tag => {
+    const lower = tag.toLowerCase()
+    if (allowedSet.has(lower)) {
+      matched.push(lower)
+      return
+    }
+
+    // 유사도 최고값 선택
+    let best = null
+    let bestScore = 0.45
+    allowedList.forEach(allow => {
+      const score = calculateSimilarity(lower, allow)
+      if (score > bestScore) {
+        bestScore = score
+        best = allow
+      }
+    })
+    if (best) matched.push(best)
+  })
+
   return [...new Set(matched)] // 중복 제거
 }
 
