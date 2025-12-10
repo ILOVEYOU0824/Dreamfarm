@@ -86,29 +86,109 @@ function extractEmotionFromRawText(rawText, studentName, allowedSet) {
         }
         
         // 어미 변화 패턴 매칭 (예: "슬퍼요" → "슬픈", "재미있었습니다" → "재미있는")
-        const patterns = [
-          tagLower.replace(/은$|는$|한$|인$/, ''), // "슬픈" → "슬픈", "기쁜" → "기쁩"
-          tagLower.replace(/한$/, '해'), // "기쁜" → "기뻐"
-          tagLower.replace(/인$/, '어'), // "재미있는" → "재미있어"
-          tagLower.replace(/은$|는$/, '어'), // "슬픈" → "슬퍼"
-        ]
+        // 감정 단어와 문장의 유사도 기반 매칭 (더 정확한 방법)
+        // "슬픈"과 "슬퍼요"의 공통 부분 찾기
+        const textLower = cleanText.toLowerCase()
         
-        patterns.forEach(pattern => {
-          if (pattern && cleanText.toLowerCase().includes(pattern)) {
+        // 직접 포함 검사
+        if (textLower.includes(tagLower)) {
+          matchedEmotions.push(tag)
+          return
+        }
+        
+        // 어간 추출 및 패턴 매칭
+        // "슬픈" → "슬프" (은 제거 후 ㅍ 추가), "기쁜" → "기쁘" (은 제거 후 ㅡ 추가)
+        let stem = tagLower
+        const stemPatterns = []
+        
+        if (tagLower.endsWith('은')) {
+          // "슬픈" → "슬프", "기쁜" → "기쁘"
+          const base = tagLower.slice(0, -1) // "슬픈" → "슬"
+          // 마지막 글자의 받침을 활용한 어간 추출은 복잡하므로, 
+          // 대신 "슬퍼", "슬펐", "슬퍼요" 등과 직접 매칭 시도
+          stemPatterns.push(
+            base.replace(/.$/, '퍼'), // "슬" → "슬퍼" (근사치)
+            base.replace(/.$/, '펐'), // "슬" → "슬펐"
+            base.replace(/.$/, '퍼요'), // "슬" → "슬퍼요"
+            base.replace(/.$/, '펐어요') // "슬" → "슬펐어요"
+          )
+        } else if (tagLower.endsWith('는')) {
+          stem = tagLower.slice(0, -1) // "재미있는" → "재미있"
+          stemPatterns.push(
+            stem + '어',
+            stem + '었',
+            stem + '어요',
+            stem + '었어요',
+            stem + '었습니다'
+          )
+        } else if (tagLower.endsWith('한')) {
+          stem = tagLower.slice(0, -1) // "기쁜" → "기쁩" (근사치)
+          stemPatterns.push(
+            stem.replace(/.$/, '뻐'), // "기쁩" → "기뻐"
+            stem.replace(/.$/, '뻤'), // "기쁩" → "기뻤"
+            stem.replace(/.$/, '뻐요'), // "기쁩" → "기뻐요"
+            stem.replace(/.$/, '뻤어요') // "기쁩" → "기뻤어요"
+          )
+        }
+        
+        // 패턴 매칭
+        stemPatterns.forEach(pattern => {
+          if (pattern && textLower.includes(pattern)) {
             matchedEmotions.push(tag)
           }
         })
+        
+        // 유사도 기반 매칭 (fallback) - 문장 전체와 태그 비교
+        if (matchedEmotions.length === 0) {
+          const similarity = calculateSimilarity(textLower, tagLower)
+          if (similarity >= 0.35) { // 임계값 더 낮춤
+            matchedEmotions.push(tag)
+          }
+        }
       })
       
       // 직접 매칭이 안 되면 유사도 기반 매칭
       if (matchedEmotions.length === 0) {
+        // 문장을 단어로 분리
         const words = cleanText
           .replace(/[^\uAC00-\uD7A3a-zA-Z0-9\s]/g, ' ')
           .split(/\s+/)
           .filter(Boolean)
         
-        const similar = filterEmotionTags(words, allowedSet)
-        matchedEmotions.push(...similar)
+        // 각 단어와 Supabase tags를 유사도 매칭
+        const allowedList = Array.from(allowedSet)
+        words.forEach(word => {
+          const wordLower = word.toLowerCase()
+          // 어미 제거 시도 (예: "슬퍼요" → "슬퍼", "재미있었습니다" → "재미있었")
+          const wordStem = wordLower
+            .replace(/요$/, '')
+            .replace(/습니다$/, '')
+            .replace(/었습니다$/, '었')
+            .replace(/았습니다$/, '았')
+            .replace(/어요$/, '어')
+            .replace(/아요$/, '아')
+            .replace(/었어요$/, '었')
+            .replace(/았어요$/, '았')
+          
+          allowedList.forEach(tag => {
+            // 원본 단어와 태그 비교
+            let similarity = calculateSimilarity(wordLower, tag)
+            // 어간과 태그 비교
+            if (wordStem !== wordLower) {
+              const stemSimilarity = calculateSimilarity(wordStem, tag)
+              similarity = Math.max(similarity, stemSimilarity)
+            }
+            
+            if (similarity >= 0.35) { // 임계값 낮춤
+              matchedEmotions.push(tag)
+            }
+          })
+        })
+        
+        // 중복 제거
+        const unique = [...new Set(matchedEmotions)]
+        matchedEmotions.length = 0
+        matchedEmotions.push(...unique)
       }
     }
   })
@@ -1125,6 +1205,14 @@ export default function UploadPage() {
       emotionTags = filterEmotionTags(emotionTags, allowedEmotionSet)
       emotionTags = [...new Set(emotionTags)]
       
+      // 감정 키워드가 비어있으면 원문 텍스트에서 추출
+      if (emotionTags.length === 0 && allowedEmotionSet && allowedEmotionSet.size > 0) {
+        const extracted = extractEmotionFromRawText(rawText, group.studentName, allowedEmotionSet)
+        if (extracted.length > 0) {
+          emotionTags = extracted
+        }
+      }
+      
       // 활동 태그 파싱 (모든 entry에서 수집)
       const allActivityTags = []
       group.entries.forEach(entry => {
@@ -1238,6 +1326,15 @@ export default function UploadPage() {
           // 이미 etc가 선택되어 있으면 감정 키워드만 병합
           activityTypes.etc.emotionTags = [...new Set([...activityTypes.etc.emotionTags || [], ...emotionTags])]
         }
+      }
+      
+      // 선택된 활동 유형에 감정 키워드가 비어있으면 원문에서 추출한 감정 추가
+      if (emotionTags.length > 0) {
+        Object.keys(activityTypes).forEach(key => {
+          if (activityTypes[key].selected && (!activityTypes[key].emotionTags || activityTypes[key].emotionTags.length === 0)) {
+            activityTypes[key].emotionTags = emotionTags
+          }
+        })
       }
       
       // 날짜 (가장 최근 날짜 사용)
@@ -1404,10 +1501,36 @@ export default function UploadPage() {
       })
     })
     
-    // 감정 태그 중복 제거
+    // 감정 태그 중복 제거 및 원문 텍스트에서 추출 (비어있을 경우)
     Object.keys(analysisByStudent).forEach(studentId => {
-      const filtered = filterEmotionTags(analysisByStudent[studentId].analysis.emotionTags, allowedEmotionSet)
-      analysisByStudent[studentId].analysis.emotionTags = [...new Set(filtered)]
+      const studentData = analysisByStudent[studentId]
+      const studentName = studentData.analysis.studentName || studentId.replace('student_', '')
+      
+      let filtered = filterEmotionTags(studentData.analysis.emotionTags, allowedEmotionSet)
+      filtered = [...new Set(filtered)]
+      
+      // 감정 키워드가 비어있으면 원문 텍스트에서 추출
+      if (filtered.length === 0 && allowedEmotionSet && allowedEmotionSet.size > 0) {
+        const extracted = extractEmotionFromRawText(rawText, studentName, allowedEmotionSet)
+        if (extracted.length > 0) {
+          filtered = extracted
+          // 추출된 감정 키워드를 활동 유형에도 추가
+          const activityTypes = studentData.activityTypes
+          Object.keys(activityTypes).forEach(key => {
+            if (activityTypes[key].selected) {
+              activityTypes[key].emotionTags = [...new Set([...activityTypes[key].emotionTags || [], ...extracted])]
+            }
+          })
+          // 활동 유형이 선택되지 않았으면 etc에 추가
+          const hasSelected = Object.values(activityTypes).some(at => at.selected)
+          if (!hasSelected && extracted.length > 0) {
+            activityTypes.etc.selected = true
+            activityTypes.etc.emotionTags = extracted
+          }
+        }
+      }
+      
+      analysisByStudent[studentId].analysis.emotionTags = filtered
     })
     
     return analysisByStudent
