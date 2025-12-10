@@ -63,15 +63,18 @@ function normalizeEmotionTags(rawValue) {
 }
 
 // log_content 내에서 "감정:" 패턴을 찾아 감정 키워드를 파싱
+// 감정: ... / 메모: ... 구조에서 "감정:" 이후, 다음 "/" 또는 개행 전까지만 사용
 function parseEmotionTagsFromText(text) {
   if (!text) return []
   const found = []
-  const regex = /감정[:：]?\s*([^\n]+)/g
+  const regex = /감정[:：]?\s*([^\n/]+)/g
   let match
   while ((match = regex.exec(text)) !== null) {
     if (match[1]) {
-      const tags = match[1]
-        .split(/[,，\/→\->\s]+/)
+      // "/" 앞부분만 취해 메모, 기타 단어를 제외
+      const span = match[1].split('/')[0] || match[1]
+      const tags = span
+        .split(/[,，\s]+/)
         .map(t => t.replace(/[()]/g, '').trim())
         .filter(Boolean)
       found.push(...tags)
@@ -112,7 +115,6 @@ function calculateSimilarity(str1, str2) {
 }
 
 // 허용된 감정 키워드 목록으로 필터링 (대소문자 무시)
-// 허용 목록에 정확히 일치하지 않으면 가장 유사한 태그를 매칭
 function filterEmotionTags(tags, allowedSet) {
   if (!Array.isArray(tags)) return []
   const normalized = tags
@@ -120,45 +122,9 @@ function filterEmotionTags(tags, allowedSet) {
     .filter(Boolean)
     .map(t => t.replace(/[.,;:]+$/g, '')) // 말미 구두점 제거
 
-  if (!allowedSet || allowedSet.size === 0) {
-    // 허용 목록이 없으면 한국어 단어만 반환
-    return normalized.filter(t => /^[가-힣]+$/.test(t))
-  }
+  if (!allowedSet || allowedSet.size === 0) return []
 
-  // 허용 목록을 배열로 변환 (유사도 검사용)
-  const allowedList = Array.from(allowedSet)
-  
-  const matched = []
-  normalized.forEach(tag => {
-    const tagLower = tag.toLowerCase()
-    
-    // 1. 정확히 일치하는지 확인
-    if (allowedSet.has(tagLower)) {
-      matched.push(tag)
-      return
-    }
-    
-    // 2. 유사도 검사로 가장 유사한 태그 찾기
-    let bestMatch = null
-    let bestScore = 0.3 // 최소 유사도 임계값 (30%)
-    
-    allowedList.forEach(allowedTag => {
-      const score = calculateSimilarity(tag, allowedTag)
-      if (score > bestScore) {
-        bestScore = score
-        bestMatch = allowedTag
-      }
-    })
-    
-    // 3. 유사한 태그가 있으면 매칭, 없으면 한국어 단어만 유지
-    if (bestMatch) {
-      matched.push(bestMatch)
-    } else if (/^[가-힣]+$/.test(tag)) {
-      // 한국어 단어지만 매칭 실패한 경우도 유지 (노이즈 제거는 이미 완료)
-      matched.push(tag)
-    }
-  })
-  
+  const matched = normalized.filter(tag => allowedSet.has(tag.toLowerCase()))
   return [...new Set(matched)] // 중복 제거
 }
 
