@@ -80,6 +80,15 @@ function parseEmotionTagsFromText(text) {
   return found
 }
 
+// 허용된 감정 키워드 목록으로 필터링 (대소문자 무시)
+function filterEmotionTags(tags, allowedSet) {
+  if (!Array.isArray(tags) || !allowedSet || allowedSet.size === 0) return tags || []
+  return tags
+    .map(t => String(t || '').trim())
+    .filter(Boolean)
+    .filter(t => allowedSet.has(t.toLowerCase()))
+}
+
 function normalizeAnalysis(raw) {
   const a = raw.analysis || {}
   return {
@@ -407,15 +416,34 @@ export default function UploadPage() {
         setStudentsMaster([])
       }
     }
+
+    // 감정 키워드 로드 (Supabase tags 우선)
+    async function loadEmotionKeywords() {
+      try {
+        const res = await apiFetch('/rest/v1/tags')
+        const list = Array.isArray(res) ? res : []
+        const mapped = list.map(tag => ({
+          id: tag.id || tag.name || tag.label || String(Math.random()),
+          label: tag.name || tag.label || '',
+          name: tag.name || tag.label || '',
+        })).filter(t => (t.label || '').trim())
+        if (mapped.length > 0) {
+          setEmotionKeywords(mapped)
+          return
+        }
+      } catch (e) {
+        console.warn('감정 키워드(tags) 로드 실패, 기본 리스트 사용:', e)
+      }
+      // 실패 시 기본 상수 사용
+      setEmotionKeywords(EMOTION_KEYWORDS)
+    }
     
     loadStudents()
+    loadEmotionKeywords()
     
     // 백엔드에서 업로드 목록 가져오기
     fetchUploads()
     fetchSavedFiles() // 저장된 파일 목록도 로드
-    
-    // 감정 키워드 마스터 리스트 설정
-    setEmotionKeywords(EMOTION_KEYWORDS)
     
     // 분석 완료 이벤트 리스너 (상세 모달 자동 새로고침)
     const handleAnalysisComplete = async (event) => {
@@ -935,7 +963,7 @@ export default function UploadPage() {
   }
   
   // 백엔드 log_entries를 프론트엔드 analysisByStudent 형식으로 변환
-  function convertLogEntriesToAnalysis(logEntries, rawText = '') {
+  function convertLogEntriesToAnalysis(logEntries, rawText = '', allowedEmotionSet = null) {
     const analysisByStudent = {}
     
     // 학생별로 그룹화 (같은 학생의 여러 log_entry를 합침)
@@ -977,7 +1005,9 @@ export default function UploadPage() {
           emotionTags = [...emotionTags, ...extra]
         }
       })
-      emotionTags = [...new Set(emotionTags)] // 중복 제거
+      // 허용된 감정 키워드만 남기고 중복 제거
+      emotionTags = filterEmotionTags(emotionTags, allowedEmotionSet)
+      emotionTags = [...new Set(emotionTags)]
       
       // 활동 태그 파싱 (모든 entry에서 수집)
       const allActivityTags = []
@@ -1097,7 +1127,7 @@ export default function UploadPage() {
   }
   
   // 백엔드 details JSONB를 프론트엔드 analysisByStudent 형식으로 변환
-  function convertDetailsToAnalysis(details, rawText = '') {
+  function convertDetailsToAnalysis(details, rawText = '', allowedEmotionSet = null) {
     const analysisByStudent = {}
     
     if (!details || !details.dates || !Array.isArray(details.dates)) {
@@ -1143,9 +1173,10 @@ export default function UploadPage() {
           
           // 감정 태그 수집
           if (emotions.length > 0) {
+            const filtered = filterEmotionTags(emotions, allowedEmotionSet)
             analysisByStudent[studentId].analysis.emotionTags = [
               ...analysisByStudent[studentId].analysis.emotionTags,
-              ...emotions
+              ...filtered
             ]
           }
           
@@ -1228,9 +1259,8 @@ export default function UploadPage() {
     
     // 감정 태그 중복 제거
     Object.keys(analysisByStudent).forEach(studentId => {
-      analysisByStudent[studentId].analysis.emotionTags = [
-        ...new Set(analysisByStudent[studentId].analysis.emotionTags)
-      ]
+      const filtered = filterEmotionTags(analysisByStudent[studentId].analysis.emotionTags, allowedEmotionSet)
+      analysisByStudent[studentId].analysis.emotionTags = [...new Set(filtered)]
     })
     
     return analysisByStudent
@@ -1330,19 +1360,24 @@ export default function UploadPage() {
       
       console.log(`[상세 모달] 학생 목록:`, students)
       
+      // 감정 키워드 허용 집합 (Supabase tags 기반)
+      const allowedEmotionSet = new Set(
+        (emotionKeywords || []).map(k => (k.label || k.name || '').trim().toLowerCase()).filter(Boolean)
+      )
+
       // 분석 결과 변환 (원본 텍스트도 함께 전달)
       let analysisByStudent = {}
       
       // 1. log_entries가 있으면 우선 사용
       if (uploadRes.log_entries && uploadRes.log_entries.length > 0) {
         console.log(`[상세 모달] log_entries로 분석 결과 변환 시작...`)
-        analysisByStudent = convertLogEntriesToAnalysis(uploadRes.log_entries, initialText)
+        analysisByStudent = convertLogEntriesToAnalysis(uploadRes.log_entries, initialText, allowedEmotionSet)
         console.log(`[상세 모달] 변환된 분석 결과:`, JSON.stringify(analysisByStudent, null, 2))
       } 
       // 2. details에 AI 분석 결과가 있으면 사용
       else if (uploadRes.details && uploadRes.details.dates && Array.isArray(uploadRes.details.dates)) {
         console.log(`[상세 모달] details에서 AI 분석 결과 변환 시작...`)
-        analysisByStudent = convertDetailsToAnalysis(uploadRes.details, initialText)
+        analysisByStudent = convertDetailsToAnalysis(uploadRes.details, initialText, allowedEmotionSet)
         console.log(`[상세 모달] details에서 변환된 분석 결과:`, JSON.stringify(analysisByStudent, null, 2))
       }
       // 3. 기존 analysisByStudent 사용
