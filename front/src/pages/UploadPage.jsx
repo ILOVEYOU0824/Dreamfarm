@@ -62,6 +62,25 @@ function normalizeEmotionTags(rawValue) {
   return []
 }
 
+// 학생 이름이 포함된 원문 텍스트에서 감정 단어를 추출 (간단 헤uristic)
+function extractEmotionFromRawText(rawText, studentName, allowedSet) {
+  if (!rawText || !studentName || !allowedSet || allowedSet.size === 0) return []
+  const lines = rawText.split(/\r?\n/).filter(Boolean)
+  const candidates = []
+  lines.forEach(line => {
+    if (line.includes(studentName)) {
+      // 학생 이름 이후 텍스트만 사용
+      const after = line.split(studentName).pop() || line
+      after
+        .replace(/[^\uAC00-\uD7A3a-zA-Z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter(Boolean)
+        .forEach(word => candidates.push(word))
+    }
+  })
+  return filterEmotionTags(candidates, allowedSet)
+}
+
 // log_content 내에서 "감정:" 패턴을 찾아 감정 키워드를 파싱
 // 감정: ... / 메모: ... 구조에서 "감정:" 이후, 다음 "/" 또는 개행 전까지만 사용
 function parseEmotionTagsFromText(text) {
@@ -1542,6 +1561,7 @@ export default function UploadPage() {
         if (!analysisByStudent[student.id]) {
           analysisByStudent[student.id] = {
             analysis: {
+              studentName: student.name || '',
               emotionTags: [],
               activityName: '',
               date: formatDate(upload.uploaded_at || uploadRes.created_at),
@@ -1557,6 +1577,24 @@ export default function UploadPage() {
           }
         }
       })
+
+      // 분석 결과가 없거나 감정 키워드가 비어있는 학생은 원문 텍스트 기반 추출 시도
+      if (initialText && allowedEmotionSet.size > 0) {
+        students.forEach(stu => {
+          const target = analysisByStudent[stu.id]
+          const hasEmotions = target.analysis.emotionTags && target.analysis.emotionTags.length > 0
+          if (!hasEmotions) {
+            const extracted = extractEmotionFromRawText(initialText, stu.name || '', allowedEmotionSet)
+            if (extracted.length > 0) {
+              target.analysis.emotionTags = [...new Set([...(target.analysis.emotionTags || []), ...extracted])]
+              // 활동 유형에 감정 반영 (etc 우선)
+              target.activityTypes = target.activityTypes || buildActivityTypeState()
+              target.activityTypes.etc.selected = true
+              target.activityTypes.etc.emotionTags = [...new Set([...(target.activityTypes.etc.emotionTags || []), ...extracted])]
+            }
+          }
+        })
+      }
 
       setDetail(createDetailState({
         open: true,
