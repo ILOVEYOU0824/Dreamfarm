@@ -62,6 +62,24 @@ function normalizeEmotionTags(rawValue) {
   return []
 }
 
+// log_content 내에서 "감정:" 패턴을 찾아 감정 키워드를 파싱
+function parseEmotionTagsFromText(text) {
+  if (!text) return []
+  const found = []
+  const regex = /감정[:：]?\s*([^\n]+)/g
+  let match
+  while ((match = regex.exec(text)) !== null) {
+    if (match[1]) {
+      const tags = match[1]
+        .split(/[,，\/→\->\s]+/)
+        .map(t => t.replace(/[()]/g, '').trim())
+        .filter(Boolean)
+      found.push(...tags)
+    }
+  }
+  return found
+}
+
 function normalizeAnalysis(raw) {
   const a = raw.analysis || {}
   return {
@@ -951,15 +969,12 @@ export default function UploadPage() {
           // 백엔드에서 "기쁜, 신나는" 형식으로 저장된 경우
           const tags = entry.emotion_tag.split(',').map(t => t.trim()).filter(Boolean)
           emotionTags = [...emotionTags, ...tags]
-        } else if (entry.log_content) {
-          // log_content 내 "감정: ..." 패턴을 파싱하여 키워드 추출 (백엔드 emotion_tag가 비어 있는 경우 대비)
-          const match = entry.log_content.match(/감정[:：]\s*([^\n]+)/)
-          if (match && match[1]) {
-            const tags = match[1].split(/[,，/\s]+/).map(t => t.trim()).filter(Boolean)
-            if (tags.length > 0) {
-              emotionTags = [...emotionTags, ...tags]
-            }
-          }
+        } 
+        
+        // log_content에서 감정 키워드 추가 추출 (emotion_tag가 비어 있거나 추가 키워드가 있을 경우)
+        const extra = parseEmotionTagsFromText(entry.log_content || '')
+        if (extra.length > 0) {
+          emotionTags = [...emotionTags, ...extra]
         }
       })
       emotionTags = [...new Set(emotionTags)] // 중복 제거
