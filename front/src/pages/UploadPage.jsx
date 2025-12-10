@@ -951,6 +951,15 @@ export default function UploadPage() {
           // 백엔드에서 "기쁜, 신나는" 형식으로 저장된 경우
           const tags = entry.emotion_tag.split(',').map(t => t.trim()).filter(Boolean)
           emotionTags = [...emotionTags, ...tags]
+        } else if (entry.log_content) {
+          // log_content 내 "감정: ..." 패턴을 파싱하여 키워드 추출 (백엔드 emotion_tag가 비어 있는 경우 대비)
+          const match = entry.log_content.match(/감정[:：]\s*([^\n]+)/)
+          if (match && match[1]) {
+            const tags = match[1].split(/[,，/\s]+/).map(t => t.trim()).filter(Boolean)
+            if (tags.length > 0) {
+              emotionTags = [...emotionTags, ...tags]
+            }
+          }
         }
       })
       emotionTags = [...new Set(emotionTags)] // 중복 제거
