@@ -62,23 +62,58 @@ function normalizeEmotionTags(rawValue) {
   return []
 }
 
-// 학생 이름이 포함된 원문 텍스트에서 감정 단어를 추출 (간단 헤uristic)
+// 학생 이름이 포함된 원문 텍스트에서 감정 단어를 추출
+// 문장에서 직접 감정 단어를 찾아 Supabase tags와 매칭
 function extractEmotionFromRawText(rawText, studentName, allowedSet) {
   if (!rawText || !studentName || !allowedSet || allowedSet.size === 0) return []
   const lines = rawText.split(/\r?\n/).filter(Boolean)
-  const candidates = []
+  const matchedEmotions = []
+  
   lines.forEach(line => {
     if (line.includes(studentName)) {
       // 학생 이름 이후 텍스트만 사용
       const after = line.split(studentName).pop() || line
-      after
-        .replace(/[^\uAC00-\uD7A3a-zA-Z0-9\s]/g, ' ')
-        .split(/\s+/)
-        .filter(Boolean)
-        .forEach(word => candidates.push(word))
+      const cleanText = after.trim()
+      
+      // Supabase tags 목록을 순회하며 문장에 포함된 감정 단어 찾기
+      const allowedList = Array.from(allowedSet)
+      allowedList.forEach(tag => {
+        const tagLower = tag.toLowerCase()
+        // 태그가 문장에 직접 포함되어 있는지 확인
+        if (cleanText.toLowerCase().includes(tagLower)) {
+          matchedEmotions.push(tag)
+          return
+        }
+        
+        // 어미 변화 패턴 매칭 (예: "슬퍼요" → "슬픈", "재미있었습니다" → "재미있는")
+        const patterns = [
+          tagLower.replace(/은$|는$|한$|인$/, ''), // "슬픈" → "슬픈", "기쁜" → "기쁩"
+          tagLower.replace(/한$/, '해'), // "기쁜" → "기뻐"
+          tagLower.replace(/인$/, '어'), // "재미있는" → "재미있어"
+          tagLower.replace(/은$|는$/, '어'), // "슬픈" → "슬퍼"
+        ]
+        
+        patterns.forEach(pattern => {
+          if (pattern && cleanText.toLowerCase().includes(pattern)) {
+            matchedEmotions.push(tag)
+          }
+        })
+      })
+      
+      // 직접 매칭이 안 되면 유사도 기반 매칭
+      if (matchedEmotions.length === 0) {
+        const words = cleanText
+          .replace(/[^\uAC00-\uD7A3a-zA-Z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .filter(Boolean)
+        
+        const similar = filterEmotionTags(words, allowedSet)
+        matchedEmotions.push(...similar)
+      }
     }
   })
-  return filterEmotionTags(candidates, allowedSet)
+  
+  return [...new Set(matchedEmotions)] // 중복 제거
 }
 
 // log_content 내에서 "감정:" 패턴을 찾아 감정 키워드를 파싱
