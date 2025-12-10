@@ -488,7 +488,8 @@ app.post(['/ai/generate-report', '/api/ai/generate-report'], async (req, res) =>
           contents: [{ role: 'user', parts: [{ text: fullPrompt }] }],
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 4000,
+            // 리포트가 길게 잘리는 문제 방지: 토큰 상한 확장
+            maxOutputTokens: 8000,
           },
         });
         break; // 성공 시 루프 종료
@@ -514,7 +515,14 @@ app.post(['/ai/generate-report', '/api/ai/generate-report'], async (req, res) =>
     }
 
     const response = result.response;
-    const markdown = response.text();
+    const markdown = (response && typeof response.text === 'function')
+      ? response.text()
+      : '';
+
+    // AI가 비어 있는 응답을 반환한 경우 에러로 처리 (프런트에 실패 전달)
+    if (!markdown || !markdown.trim()) {
+      throw new Error('AI 응답이 비어 있습니다. 잠시 후 다시 시도해주세요.');
+    }
 
     return res.json({
       ok: true,
