@@ -1034,18 +1034,23 @@ export default function UploadPage() {
         if (contentLower.includes('수확') || contentLower.includes('따다') || contentLower.includes('뽑다')) {
           activityTypes.harvest.selected = true
           activityTypes.harvest.detail = content
+          activityTypes.harvest.emotionTags = emotionTags
         } else if (contentLower.includes('파종') || contentLower.includes('심다') || contentLower.includes('씨앗')) {
           activityTypes.sowing.selected = true
           activityTypes.sowing.detail = content
+          activityTypes.sowing.emotionTags = emotionTags
         } else if (contentLower.includes('관리') || contentLower.includes('물주') || contentLower.includes('비료')) {
           activityTypes.manage.selected = true
           activityTypes.manage.detail = content
+          activityTypes.manage.emotionTags = emotionTags
         } else if (contentLower.includes('관찰') || contentLower.includes('보기') || contentLower.includes('확인')) {
           activityTypes.observe.selected = true
           activityTypes.observe.detail = content
+          activityTypes.observe.emotionTags = emotionTags
         } else {
           activityTypes.etc.selected = true
           activityTypes.etc.detail = content
+          activityTypes.etc.emotionTags = emotionTags
         }
       }
       
@@ -1280,7 +1285,10 @@ export default function UploadPage() {
             dateObj.students.forEach(student => {
               const studentName = student.student_name || student.name || student.label || '학생'
               const studentId = `student_${studentName}` // 임시 ID 생성
-              if (!studentsMap.has(studentId)) {
+              
+              // 이름 기준 중복 제거 (log_entries에서 이미 추가된 학생과 겹치는 경우 제외)
+              const nameExists = Array.from(studentsMap.values()).some(s => (s.name || '').trim() === studentName.trim())
+              if (!studentsMap.has(studentId) && !nameExists) {
                 studentsMap.set(studentId, {
                   id: studentId,
                   name: studentName
